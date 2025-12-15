@@ -158,58 +158,16 @@ const sendTokenAndRedirect = (req, res) => {
   return res.redirect(`${FRONTEND_URL}/dashboard?token=${token}`);
 };
 
-// ---------------------- LOCAL SIGNUP ----------------------
-app.post('/api/auth/signup', async (req, res) => {
-  try {
-    const { fullName, email, password } = req.body;
+// ---------------------- ROUTES ----------------------
+const authRoutes = require('./routes/auth');
+const assessmentRoutes = require('./routes/assessments');
+const moodRoutes = require('./routes/mood');
+const dashboardRoutes = require('./routes/dashboard');
 
-    if (!fullName || !email || !password)
-      return res.status(400).json({ msg: 'All fields are required' });
-
-    if (await User.findOne({ email }))
-      return res.status(400).json({ msg: 'User already exists' });
-
-    const hash = await bcrypt.hash(password, 10);
-
-    const newUser = await User.create({
-      fullName,
-      email,
-      password: hash,
-      provider: 'local',
-    });
-
-    const token = jwt.sign({ id: newUser._id }, process.env.JWT_SECRET);
-
-    res.json({ token, user: newUser });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: 'Server error' });
-  }
-});
-
-// ---------------------- LOCAL LOGIN ----------------------
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    const user = await User.findOne({ email });
-
-    if (!user || user.provider !== 'local')
-      return res
-        .status(400)
-        .json({ msg: 'Invalid login method or user does not exist' });
-
-    if (!(await bcrypt.compare(password, user.password)))
-      return res.status(400).json({ msg: 'Invalid password' });
-
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
-
-    res.json({ token, user });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: 'Server error' });
-  }
-});
+app.use('/api/auth', authRoutes);
+app.use('/api/assessments', assessmentRoutes);
+app.use('/api/moods', moodRoutes);
+app.use('/api', dashboardRoutes);
 
 // ---------------------- GOOGLE ROUTES ----------------------
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
