@@ -1,29 +1,49 @@
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { FaCalendarAlt, FaPlus, FaChevronRight, FaClipboardList, FaCheckCircle, FaTimes, FaArrowLeft } from "react-icons/fa";
+import { FaArrowLeft, FaPlus, FaChevronRight, FaHistory, FaTimes, FaCheckCircle, FaClipboardList } from "react-icons/fa";
 import { apiService } from "../services/api";
 
+// --- Utility: Date Formatter ---
 function formatDate(iso) {
   try {
-    return new Date(iso).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    const date = new Date(iso);
+    return {
+      full: date.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      day: date.toLocaleString('en-US', { day: 'numeric' }),
+      month: date.toLocaleString('en-US', { month: 'short' }),
+      time: date.toLocaleString('en-US', { hour: '2-digit', minute: '2-digit' })
+    };
   } catch {
-    return iso;
+    return { full: iso, day: '', month: '', time: '' };
   }
 }
 
-const getScoreColor = (score) => {
-  if (!score) return "bg-gray-100 text-gray-600";
-  if (score >= 4) return "bg-green-100 text-green-700";
-  if (score >= 3) return "bg-blue-100 text-blue-700";
-  return "bg-orange-100 text-orange-700";
+// --- Utility: Score Color (Teal/Green/Beige Theme) ---
+const getScoreConfig = (score) => {
+  if (!score) return { bg: "bg-stone-100", text: "text-stone-600", border: "border-stone-200" };
+  // High Score: Grass Green
+  if (score >= 4) return { bg: "bg-green-50", text: "text-green-800", border: "border-green-500" };
+  // Mid Score: Teal
+  if (score >= 3) return { bg: "bg-teal-50", text: "text-teal-700", border: "border-teal-400" };
+  // Low Score: Beige/Stone (Neutral/Warm)
+  return { bg: "bg-orange-50", text: "text-orange-800", border: "border-orange-300" };
 };
+
+// --- Skeleton Loader (Beige Tones) ---
+const SkeletonLoader = () => (
+  <div className="space-y-4 animate-pulse">
+    {[1, 2, 3].map((i) => (
+      <div key={i} className="flex gap-4 p-4 bg-white rounded-2xl border border-stone-100">
+        <div className="w-12 h-12 bg-stone-100 rounded-xl"></div>
+        <div className="flex-1 space-y-2">
+          <div className="h-4 bg-stone-100 rounded w-1/3"></div>
+          <div className="h-3 bg-stone-100 rounded w-1/4"></div>
+        </div>
+      </div>
+    ))}
+  </div>
+);
 
 export default function History() {
   const navigate = useNavigate();
@@ -35,7 +55,8 @@ export default function History() {
     const fetchHistory = async () => {
       try {
         const data = await apiService.getAssessmentHistory();
-        setRecords(Array.isArray(data) ? data : []);
+        const sorted = Array.isArray(data) ? data.sort((a, b) => new Date(b.date) - new Date(a.date)) : [];
+        setRecords(sorted);
       } catch (e) {
         console.error("Failed to load history", e);
         setRecords([]);
@@ -47,114 +68,119 @@ export default function History() {
   }, []);
 
   return (
-    // 🔥 Removed 'md:ml-64' to fix the extra left space
-    <div className="min-h-screen bg-[#FDFDFD] text-gray-800 font-sans">
+    // ✅ Main BG: Warm Beige/Off-White
+    <div className="min-h-screen bg-[#FDFCF8] text-stone-800 font-sans selection:bg-teal-100">
       
-      <div className="max-w-6xl mx-auto p-4 md:p-8">
+      <div className="max-w-4xl mx-auto p-6 md:p-10">
         
-        {/* Header Section */}
+        {/* --- Header --- */}
         <motion.div 
           initial={{ opacity: 0, y: -10 }} 
           animate={{ opacity: 1, y: 0 }} 
-          className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8"
+          className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10"
         >
           <div className="flex items-center gap-4">
             <button 
               onClick={() => navigate('/dashboard')}
-              className="p-3 rounded-xl bg-white border border-gray-200 text-gray-500 hover:text-gray-900 hover:border-gray-300 transition-all shadow-sm"
+              className="p-3 rounded-xl bg-white border border-stone-200 text-stone-500 hover:text-teal-900 hover:border-teal-200 transition-all shadow-sm hover:shadow-md"
             >
               <FaArrowLeft />
             </button>
             <div>
-              <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight flex items-center gap-3">
-                Assessment History
-              </h1>
-              <p className="text-gray-500 text-sm mt-1">Your private timeline of check-ins.</p>
+              <h1 className="text-3xl font-bold text-teal-900 tracking-tight">Your Journey</h1>
+              <p className="text-stone-500 text-sm mt-1">A timeline of your mental wellness check-ins.</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 mt-2 md:mt-0">
-            <button
-              onClick={() => navigate("/assessments")}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-green-500 to-teal-600 text-white font-semibold shadow-lg shadow-green-200 hover:shadow-green-300 hover:-translate-y-0.5 transition-all active:scale-95"
-            >
-              <FaPlus className="text-sm" /> New Check-in
-            </button>
-          </div>
+          {/* ✅ Button: Gradient from Grass Green to Teal */}
+          <button
+            onClick={() => navigate("/assessments")}
+            className="group flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-green-600 to-teal-600 text-white font-semibold shadow-lg shadow-green-200 hover:shadow-green-300 hover:-translate-y-0.5 transition-all"
+          >
+            <FaPlus className="text-sm group-hover:rotate-90 transition-transform" /> New Check-in
+          </button>
         </motion.div>
 
-        {/* History List */}
-        <div className="grid gap-3">
+        {/* --- Timeline Content --- */}
+        {/* Line Color: Light Green */}
+        <div className="relative pl-4 md:pl-8 border-l-2 border-green-100 space-y-8">
+          
           {loading ? (
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }} 
-              animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col items-center justify-center py-20 px-4 text-center bg-white rounded-3xl border border-dashed border-gray-300"
-            >
-              <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-3xl mb-4 text-gray-400">...</div>
-              <h3 className="text-xl font-bold text-gray-900">Loading History...</h3>
-            </motion.div>
+             <div className="pl-6"><SkeletonLoader /></div>
           ) : records.length === 0 ? (
             <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }} 
-              animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col items-center justify-center py-20 px-4 text-center bg-white rounded-3xl border border-dashed border-gray-300"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              className="ml-6 flex flex-col items-center justify-center py-16 px-4 bg-white rounded-3xl border border-dashed border-stone-300"
             >
-              <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-3xl mb-4 text-gray-400">📅</div>
-              <h3 className="text-xl font-bold text-gray-900">No history yet</h3>
-              <p className="text-gray-500 mt-2 max-w-sm mx-auto">
-                Start your first check-in to track your wellness journey.
-              </p>
+              <div className="w-16 h-16 bg-stone-50 rounded-full flex items-center justify-center text-3xl mb-4 text-stone-300">
+                <FaHistory />
+              </div>
+              <h3 className="text-lg font-bold text-stone-900">No records found</h3>
+              <p className="text-stone-400 text-sm mt-1 text-center">Your history will appear here after your first assessment.</p>
             </motion.div>
           ) : (
-            records.map((r, index) => (
-              <motion.div
-                key={r.id || index}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
-                onClick={() => setSelected(r)}
-                className="group relative p-5 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-green-200 cursor-pointer transition-all duration-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-              >
-                {/* Left Side */}
-                <div className="flex items-center gap-4 w-full">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold shrink-0 shadow-inner ${getScoreColor(r.summary?.avgScore)}`}>
-                    {r.summary?.avgScore || "-"}
-                  </div>
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                      <h3 className="font-bold text-gray-900 text-base md:text-lg truncate">Daily Check-in</h3>
-                      {r.day === new Date().toISOString().slice(0,10) && (
-                        <span className="px-2 py-0.5 rounded-md bg-green-100 text-green-700 text-[10px] font-bold uppercase tracking-wider">Today</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-gray-500 font-medium">
-                      <FaCalendarAlt className="text-gray-400 text-xs" />
-                      {formatDate(r.date)}
-                    </div>
-                  </div>
+            records.map((r, index) => {
+              const dateObj = formatDate(r.date);
+              const styles = getScoreConfig(r.summary?.avgScore);
 
-                  {/* Right Arrow */}
-                  <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center text-gray-400 group-hover:bg-green-500 group-hover:text-white transition-all shadow-sm shrink-0">
-                     <FaChevronRight className="text-xs" />
+              return (
+                <motion.div
+                  key={r.id || index}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                  onClick={() => setSelected(r)}
+                  className="relative group ml-6"
+                >
+                  {/* Timeline Dot (Matches Beige BG) */}
+                  <div className={`absolute -left-[41px] md:-left-[59px] top-6 w-5 h-5 rounded-full border-4 border-[#FDFCF8] ${styles.bg.replace('bg-', 'bg-') || 'bg-stone-300'}`}></div>
+
+                  <div className={`
+                    p-5 bg-white rounded-2xl border border-stone-100 shadow-sm 
+                    hover:shadow-md hover:border-teal-200 cursor-pointer transition-all duration-200 
+                    flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4
+                    border-l-4 ${styles.border}
+                  `}>
+                    
+                    {/* Date Block */}
+                    <div className="flex items-center gap-4">
+                      <div className="flex flex-col items-center justify-center w-14 h-14 bg-stone-50 rounded-xl border border-stone-100 text-teal-800 shrink-0">
+                        <span className="text-xs font-bold uppercase text-stone-400">{dateObj.month}</span>
+                        <span className="text-xl font-bold leading-none">{dateObj.day}</span>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-teal-900 text-lg">Daily Check-in</h3>
+                          {r.day === new Date().toISOString().slice(0,10) && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-green-100 text-green-700">New</span>
+                          )}
+                        </div>
+                        <div className="text-sm text-stone-400 font-medium">
+                          {dateObj.time} • {r.summary?.avgScore ? `Score: ${r.summary.avgScore}/5` : 'Completed'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Arrow */}
+                    <div className="hidden sm:flex w-10 h-10 rounded-full bg-white border border-stone-100 items-center justify-center text-stone-400 group-hover:bg-teal-600 group-hover:text-white group-hover:border-transparent transition-all">
+                       <FaChevronRight className="text-xs" />
+                    </div>
                   </div>
-                </div>
-              </motion.div>
-            ))
+                </motion.div>
+              );
+            })
           )}
         </div>
       </div>
 
-      {/* Detail Modal */}
+      {/* --- Detail Modal --- */}
       <AnimatePresence>
         {selected && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-stone-900/40 backdrop-blur-sm" 
               onClick={() => setSelected(null)} 
             />
 
@@ -162,47 +188,57 @@ export default function History() {
               initial={{ scale: 0.95, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="relative z-50 w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
+              className="relative z-50 w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
             >
-              {/* Modal Header */}
-              <div className="bg-gray-50 p-5 border-b border-gray-100 flex items-center justify-between sticky top-0 z-10">
+              {/* Modal Header: Light Beige */}
+              <div className="bg-stone-50 p-6 border-b border-stone-100 flex items-center justify-between sticky top-0 z-10">
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900">Session Details</h3>
-                  <p className="text-sm text-gray-500 flex items-center gap-1.5 mt-0.5">
-                    <FaCalendarAlt className="text-green-500" /> {formatDate(selected.date)}
-                  </p>
+                  <h3 className="text-xl font-bold text-teal-900">Session Details</h3>
+                  <p className="text-sm text-stone-500 mt-1">{formatDate(selected.date).full}</p>
                 </div>
-                <button onClick={() => setSelected(null)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-200 text-gray-500 hover:bg-gray-100 transition">
+                <button onClick={() => setSelected(null)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white text-stone-400 hover:bg-stone-100 transition">
                   <FaTimes />
                 </button>
               </div>
 
               {/* Modal Content */}
-              <div className="p-6 overflow-y-auto custom-scrollbar space-y-6">
+              <div className="p-6 overflow-y-auto custom-scrollbar space-y-8">
                 
-                {/* Summary Card */}
+                {/* Score Card: Green/Teal Mix */}
                 {selected.summary && (
-                  <div className="p-4 rounded-xl bg-gradient-to-r from-green-50 to-teal-50 border border-green-100 flex items-center justify-between">
+                  <div className="p-5 rounded-2xl bg-gradient-to-br from-green-50 to-teal-50 border border-green-100 flex items-center justify-between">
                     <div>
-                      <div className="text-xs font-bold text-green-800 uppercase tracking-wider mb-1">Average Score</div>
-                      <div className="text-2xl font-extrabold text-green-700">{selected.summary.avgScore} <span className="text-base font-normal text-green-600/70">/ 5</span></div>
+                      <div className="text-xs font-bold text-green-800 uppercase tracking-wider mb-1">Wellness Score</div>
+                      <div className="text-3xl font-extrabold text-teal-900">{selected.summary.avgScore} <span className="text-lg font-medium text-teal-700/60">/ 5</span></div>
                     </div>
-                    <div className="text-3xl opacity-50">📊</div>
+                    <div className="h-12 w-12 bg-white/60 rounded-full flex items-center justify-center text-2xl shadow-sm">📊</div>
                   </div>
                 )}
 
-                {/* Responses */}
-                <div>
-                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                    <FaClipboardList /> Responses
+                {/* AI Guidance Section: Teal Background */}
+                {selected.llmAnalysis && (selected.llmAnalysis.guidance || selected.llmAnalysis.guidanceText) && (
+                   <div className="space-y-3">
+                      <h4 className="text-xs font-bold text-stone-400 uppercase tracking-wider flex items-center gap-2">
+                        <FaCheckCircle className="text-teal-500" /> AI Insights
+                      </h4>
+                      <div className="p-5 rounded-2xl bg-teal-50 text-teal-900 text-sm leading-7 border border-teal-100">
+                        {selected.llmAnalysis.guidanceText || selected.llmAnalysis.guidance}
+                      </div>
+                   </div>
+                )}
+
+                {/* Responses List */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold text-stone-400 uppercase tracking-wider flex items-center gap-2">
+                    <FaClipboardList /> Your Responses
                   </h4>
-                  <div className="space-y-3">
+                  <div className="grid gap-3">
                     {selected.answers && Object.entries(selected.answers).map(([questionId, value]) => (
-                      <div key={questionId} className="group">
-                        <div className="text-xs font-semibold text-gray-500 mb-1 capitalize ml-1">
-                          {questionId.replace(/_/g, ' ')}
+                      <div key={questionId} className="p-4 rounded-xl bg-stone-50 border border-stone-100">
+                        <div className="text-xs font-semibold text-stone-400 mb-1 capitalize">
+                          {questionId.replace(/_/g, ' ').replace('q ', 'Question ')}
                         </div>
-                        <div className="p-3.5 rounded-xl bg-gray-50 border border-gray-100 text-gray-800 text-sm font-medium">
+                        <div className="text-stone-700 font-medium text-sm">
                           {String(value)}
                         </div>
                       </div>
@@ -210,24 +246,13 @@ export default function History() {
                   </div>
                 </div>
 
-                {/* AI Guidance */}
-                {selected.llmAnalysis && (selected.llmAnalysis.guidance || selected.llmAnalysis.guidanceText) && (
-                   <div className="pt-4 border-t border-gray-100">
-                      <h4 className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <FaCheckCircle /> AI Insight
-                      </h4>
-                      <div className="p-4 rounded-xl bg-blue-50/50 border border-blue-100 text-blue-900 text-sm leading-relaxed">
-                        {selected.llmAnalysis.guidanceText || selected.llmAnalysis.guidance}
-                      </div>
-                   </div>
-                )}
               </div>
 
               {/* Modal Footer */}
-              <div className="p-4 border-t border-gray-100 bg-gray-50/50">
+              <div className="p-4 border-t border-stone-100 bg-stone-50">
                 <button 
                   onClick={() => setSelected(null)}
-                  className="w-full py-3 rounded-xl bg-white border border-gray-200 font-bold text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-all shadow-sm"
+                  className="w-full py-3 rounded-xl bg-white border border-stone-200 font-bold text-stone-600 hover:bg-stone-100 hover:text-teal-900 transition shadow-sm"
                 >
                   Close
                 </button>

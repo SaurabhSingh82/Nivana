@@ -1,12 +1,15 @@
+
+
 // src/components/Auth.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Chrome, Github, Feather } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import LoginForm from './LoginForm';
 import SignupForm from './SignupForm';
 
-// Vanta + Three
+// Vanta + Three (optional)
 import * as THREE from 'three';
 import CLOUDS from 'vanta/dist/vanta.clouds.min';
 
@@ -45,18 +48,47 @@ const Typewriter = ({ text, speed = 100, delay = 0 }) => {
 
   return (
     <span className="inline-block text-teal-800">
-      {displayText}
+      {displayText.split('\n').map((line, i) => (
+        <React.Fragment key={i}>
+          {line}
+          {i < displayText.split('\n').length - 1 && <br />}
+        </React.Fragment>
+      ))}
       <span
-        className={`inline-block w-[3px] h-[1em] bg-teal-600 ml-1 align-middle ${
-          isTyping ? 'animate-pulse' : 'opacity-0'
-        }`}
+        className={`inline-block w-[3px] h-[1em] bg-teal-600 ml-1 align-middle ${isTyping ? 'animate-pulse' : 'opacity-0'}`}
       />
     </span>
   );
 };
 
 const NivanaAuth = () => {
-  const [isLogin, setIsLogin] = useState(true);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // 🔐 OAUTH TOKEN CAPTURE
+  const auth = useAuth();
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+
+    if (token) {
+      auth.login(token);
+      navigate("/dashboard", { replace: true });
+    }
+  }, [navigate, auth]);
+
+  // initial mode from pathname
+  const [isLogin, setIsLogin] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return !window.location.pathname.includes('signup');
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    setIsLogin(!location.pathname.includes('signup'));
+  }, [location.pathname]);
+
   const [isAnimating, setIsAnimating] = useState(false);
 
   // Forms state
@@ -67,18 +99,16 @@ const NivanaAuth = () => {
   const [loading, setLoading]       = useState(false);
   const [errorMsg, setErrorMsg]     = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-
-  const navigate = useNavigate();
+  
 
   // Vanta
   const vantaRef = useRef(null);
-  const [vantaEffect, setVantaEffect] = useState(null);
+  const vantaEffectRef = useRef(null);
 
-  // 🌤️ Vanta CLOUDS (kept as-is, just UI colors changed)
   useEffect(() => {
-    if (!vantaEffect) {
-      setVantaEffect(
-        CLOUDS({
+    if (!vantaEffectRef.current && vantaRef.current) {
+      try {
+        vantaEffectRef.current = CLOUDS({
           el: vantaRef.current,
           THREE,
           mouseControls: true,
@@ -86,7 +116,6 @@ const NivanaAuth = () => {
           gyroControls: false,
           minHeight: 200.0,
           minWidth: 200.0,
-
           skyColor: 0x68b8d7,
           backgroundColor: 0xadc1de,
           cloudColor: 0xffffff,
@@ -94,14 +123,17 @@ const NivanaAuth = () => {
           sunColor: 0xff6633,
           sunGlareColor: 0xff9919,
           sunlightColor: 0xff9933,
-        })
-      );
+        });
+      } catch (e) {}
     }
 
     return () => {
-      if (vantaEffect) vantaEffect.destroy();
+      if (vantaEffectRef.current) {
+        vantaEffectRef.current.destroy();
+        vantaEffectRef.current = null;
+      }
     };
-  }, [vantaEffect]);
+  }, []);
 
   const resetMessages = () => {
     setErrorMsg('');
@@ -111,13 +143,22 @@ const NivanaAuth = () => {
   const toggleAuthMode = () => {
     setIsAnimating(true);
     resetMessages();
+
     setTimeout(() => {
-      setIsLogin((prev) => !prev);
+      const nextIsLogin = !isLogin;
+      setIsLogin(nextIsLogin);
       setIsAnimating(false);
-    }, 600);
+
+      try {
+        if (nextIsLogin) {
+          navigate('/login', { replace: true });
+        } else {
+          navigate('/signup', { replace: true });
+        }
+      } catch (e) {}
+    }, 400);
   };
 
-  // Social login -> backend OAuth routes
   const handleSocialLogin = (provider) => {
     let url = '';
 
@@ -135,7 +176,6 @@ const NivanaAuth = () => {
     window.location.href = url;
   };
 
-  // backend call (axios) + clear form + redirect
   const handleSubmit = async (e) => {
     e.preventDefault();
     resetMessages();
@@ -146,36 +186,39 @@ const NivanaAuth = () => {
         ? `${API_BASE_URL}/api/auth/login`
         : `${API_BASE_URL}/api/auth/signup`;
 
-      const body = isLogin
-        ? { email, password }
-        : { fullName, email, password };
-
+      const body = isLogin ? { email, password } : { fullName, email, password };
       const res = await axios.post(url, body);
+
       const data = res.data;
 
-      if (data.token) {
-        localStorage.setItem('token', data.token);
+      if (!data || !data.token) {
+        throw new Error("Token missing in auth response");
       }
+      
+      auth.login(data.token, data.user);
 
       setFullName('');
       setEmail('');
       setPassword('');
 
-      setSuccessMsg(
-        isLogin ? 'Logged in successfully ✨' : 'Account created successfully ✨'
-      );
+      setSuccessMsg(isLogin ? 'Logged in successfully ✨' : 'Account created successfully ✨');
 
-      navigate('/dashboard');
+      navigate("/dashboard", { replace: true });
+
     } catch (err) {
-      console.error(err);
       const msg =
         err.response?.data?.msg ||
         err.response?.data?.error ||
+        err.message ||
         'Something went wrong';
       setErrorMsg(msg);
     } finally {
       setLoading(false);
     }
+  };
+
+  const goToAbout = () => {
+    navigate('/');
   };
 
   return (
@@ -200,15 +243,12 @@ const NivanaAuth = () => {
         }
       `}</style>
 
-      {/* warm beige overlay */}
       <div className="absolute inset-0 z-0 bg-[radial-gradient(circle_at_top,#f5e0c8_0,#f5e9da_40%,#f8f3e8_75%,#fdf8f1_100%)] mix-blend-soft-light pointer-events-none" />
 
-      {/* Card */}
       <div className="self-draw-card relative z-10 w-full max-w-[1050px] min-h-[650px] flex flex-col md:flex-row m-4 rounded-3xl overflow-hidden border border-[#D8C3A5]/90 shadow-[0_28px_70px_rgba(36,115,108,0.35)] backdrop-blur-2xl bg-[#F5E9DA]/95">
 
-        {/* Left Section */}
+        {/* Left */}
         <div className="w-full md:w-5/12 p-10 md:p-14 flex flex-col justify-between relative overflow-hidden rounded-3xl md:rounded-none md:rounded-l-3xl border-r border-[#D8C3A5]/80 bg-linear-to-br from-[#F3DFC9] via-[#F5E9DA] to-[#F8F3E8]">
-          <div className="absolute inset-0 opacity-[0.18] bg-[radial-gradient(circle_at_top_left,#f5e0c8_0,transparent_55%)] pointer-events-none" />
 
           <div className="relative z-10 flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl bg-[#FDF8F1] backdrop-blur-md border border-[#D8C3A5] flex items-center justify-center shadow-md shadow-[#D8C3A5]/70">
@@ -236,19 +276,19 @@ const NivanaAuth = () => {
           </div>
 
           <div className="relative z-10 mt-8 text-xs font-bold tracking-widest uppercase text-teal-800/70">
-            <span className="cursor-pointer inline-flex items-center gap-1 group">
-              <span className="group-hover:text-teal-700 transition-colors">
-                About Us
-              </span>
-              <span className="h-px w-8 bg-linear-to-r from-teal-400 via-teal-500 to-teal-700 group-hover:w-10 transition-all" />
-            </span>
+            <button
+              onClick={goToAbout}
+              className="cursor-pointer inline-flex items-center gap-1 group text-left bg-transparent border-none p-0"
+            >
+              <span className="group-hover:text-teal-700 transition-colors">About Us</span>
+              <span className="h-px w-8 bg-linear-to-r from-teal-400 via-teal-500 to-teal-700 group-hover:w-10 transition-all ml-2" />
+            </button>
           </div>
         </div>
 
-        {/* Right Section */}
+        {/* Right */}
         <div className="w-full md:w-7/12 p-8 md:p-16 bg-[#F8F3E8]/90 flex flex-col justify-center relative">
 
-          {/* Toggle */}
           <div className="absolute top-8 right-8 md:top-10 md:right-10 z-20">
             <button
               onClick={toggleAuthMode}
@@ -262,14 +302,7 @@ const NivanaAuth = () => {
             </button>
           </div>
 
-          {/* Form */}
-          <div
-            className={`max-w-md mx-auto w-full transition-all duration-700 ${
-              isAnimating
-                ? 'opacity-0 translate-y-8 blur-md scale-95'
-                : 'opacity-100 translate-y-0 blur-0 scale-100'
-            }`}
-          >
+          <div className={`max-w-md mx-auto w-full transition-all duration-700 ${isAnimating ? 'opacity-0 translate-y-8 blur-md scale-95' : 'opacity-100 translate-y-0 blur-0 scale-100'}`}>
             <h3 className="text-2xl font-serif font-bold text-teal-900 mb-2">
               {isLogin ? 'Welcome Back' : 'Create Account'}
             </h3>
@@ -310,36 +343,39 @@ const NivanaAuth = () => {
               />
             )}
 
-            {/* Divider */}
-            <div className="relative py-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-[#D8C3A5]/90" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase tracking-widest">
-                <span className="px-4 bg-[#F8F3E8] text-teal-800/80 font-semibold">
-                  Or continue with
-                </span>
-              </div>
-            </div>
+            {/* ----- SOCIAL ICONS: RENDER ONLY IF LOGIN ----- */}
+            {isLogin && (
+              <>
+                <div className="relative py-6">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-[#D8C3A5]/90" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase tracking-widest">
+                    <span className="px-4 bg-[#F8F3E8] text-teal-800/80 font-semibold">
+                      Or continue with
+                    </span>
+                  </div>
+                </div>
 
-            {/* Social buttons */}
-            <div className="flex justify-center gap-6">
-              <button
-                onClick={() => handleSocialLogin('google')}
-                className="p-3 bg-[#F5E9DA] hover:bg-[#EBDCC8] rounded-full transition-all duration-300 shadow-sm border border-[#D8C3A5] hover:border-teal-600 hover:shadow-md hover:shadow-teal-200/70"
-              >
-                {/* CHROME ICON — DEFAULT COLORS */}
-                <Chrome className="w-5 h-5 text-inherit" />
-              </button>
-                      
-              <button
-                onClick={() => handleSocialLogin('github')}
-                className="p-3 bg-[#F5E9DA] hover:bg-[#EBDCC8] rounded-full transition-all duration-300 shadow-sm border border-[#D8C3A5] hover:border-teal-600 hover:shadow-md hover:shadow-teal-200/70"
-              >
-                {/* GITHUB ICON — DEFAULT BLACK */}
-                <Github className="w-5 h-5 text-black" />
-              </button>
-            </div>
+                <div className="flex justify-center gap-6">
+                  <button
+                    onClick={() => handleSocialLogin('google')}
+                    className="p-3 bg-[#F5E9DA] hover:bg-[#EBDCC8] rounded-full transition-all duration-300 shadow-sm border border-[#D8C3A5] hover:border-teal-600 hover:shadow-md hover:shadow-teal-200/70"
+                  >
+                    <Chrome className="w-5 h-5 text-inherit" />
+                  </button>
+
+                  <button
+                    onClick={() => handleSocialLogin('github')}
+                    className="p-3 bg-[#F5E9DA] hover:bg-[#EBDCC8] rounded-full transition-all duration-300 shadow-sm border border-[#D8C3A5] hover:border-teal-600 hover:shadow-md hover:shadow-teal-200/70"
+                  >
+                    <Github className="w-5 h-5 text-black" />
+                  </button>
+                </div>
+              </>
+            )}
+            {/* ---------------------------------------------- */}
+
           </div>
         </div>
       </div>

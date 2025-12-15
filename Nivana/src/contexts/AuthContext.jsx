@@ -1,3 +1,4 @@
+// src/contexts/AuthContext.jsx
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
 const AuthContext = createContext(null);
@@ -9,90 +10,95 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // On mount: check localStorage and also capture token query param from OAuth flows
+  // 1. Initial Load: Check LocalStorage & URL Params (OAuth)
   useEffect(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const tokenFromUrl = params.get('token');
-      const tokenFromStorage = localStorage.getItem('token');
+    const initializeAuth = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const tokenFromUrl = params.get('token');
+        const tokenFromStorage = localStorage.getItem('token');
 
-      // priority: use token from URL (fresh OAuth), otherwise storage
-      if (tokenFromUrl && tokenFromUrl !== tokenFromStorage) {
-        localStorage.setItem('token', tokenFromUrl);
-        setToken(tokenFromUrl);
+        // Priority: URL Token (Fresh Login) > Storage Token
+        if (tokenFromUrl) {
+          localStorage.setItem('token', tokenFromUrl);
+          setToken(tokenFromUrl);
 
-        // remove token from URL for neatness
-        try {
+          // URL clean karo (token hatao)
           const url = new URL(window.location.href);
           url.searchParams.delete('token');
           window.history.replaceState({}, document.title, url.pathname + url.search);
-        } catch (e) {
-          // ignore
+        
+        } else if (tokenFromStorage) {
+          setToken(tokenFromStorage);
         }
-      } else {
-        setToken(tokenFromStorage);
+      } catch (e) {
+        console.warn('Error reading token:', e);
+        setToken(null);
+      } finally {
+        setIsLoading(false);
       }
-    } catch (e) {
-      console.warn('Could not read token from localStorage or parse URL', e);
-      setToken(null);
-    } finally {
-      setIsLoading(false);
-    }
+    };
+
+    initializeAuth();
   }, []);
 
+  // 2. Login Function
   const login = (newToken, newUser = null) => {
-    try {
-      localStorage.setItem('token', newToken);
-      setToken(newToken);
-      if (newUser) setUser(newUser);
-
-      // also ensure token isn't left in URL (if login returned via redirect)
-      try {
-        const url = new URL(window.location.href);
-        if (url.searchParams.get('token')) {
-          url.searchParams.delete('token');
-          window.history.replaceState({}, document.title, url.pathname + url.search);
-        }
-      } catch (e) {}
-    } catch (e) {
-      console.warn('Failed to store token', e);
-    }
+    localStorage.setItem('token', newToken);
+    setToken(newToken);
+    if (newUser) setUser(newUser);
   };
 
+  // 3. Logout Function
   const logout = () => {
-    try {
-      localStorage.removeItem('token');
-    } catch (e) {
-      console.warn('Failed to clear token', e);
-    }
+    localStorage.removeItem('token');
     setToken(null);
     setUser(null);
+    // Optional: Agar dashboard par ho toh home par redirect bhi kar sakte ho
+    // window.location.href = '/login'; 
   };
 
-  // keep user fresh after token is set
+  // 4. User Fetch Effect (FIXED: Handles Expired Token)
   useEffect(() => {
     const fetchUser = async () => {
-      if (!token) return setUser(null);
+      if (!token) {
+        setUser(null);
+        return;
+      }
+
       try {
         const base = import.meta.env.VITE_API_URL || 'http://localhost:5000';
         const res = await fetch(`${base}/api/auth/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok) throw new Error('Could not fetch user');
+
+        if (!res.ok) {
+          throw new Error('Token invalid or expired');
+        }
+
         const data = await res.json();
         setUser(data.user || null);
+
       } catch (e) {
-        console.warn('Failed to fetch user for token', e);
+        console.warn('Authentication failed, auto-logging out:', e);
+        
+        // --- IMPORTANT FIX ---
+        // Agar token invalid hai, toh turant sab clear karo
+        // Varna app blank screen par atak jayega
+        localStorage.removeItem('token');
+        setToken(null);
         setUser(null);
+        // ---------------------
       }
     };
+
     fetchUser();
   }, [token]);
 
   const value = {
     token,
     user,
-    isAuthenticated: !!token,
+    isAuthenticated: !!token, // Convert token existence to boolean
     isLoading,
     login,
     logout,

@@ -1,325 +1,547 @@
-import React, { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { gsap } from "gsap";
+import React, { useState, useEffect } from "react";
+import { motion } from "framer-motion";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
-const Dashboard = () => {
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+  Legend,
+} from "recharts";
+
+export default function Dashboard() {
   const navigate = useNavigate();
-  const pageRef = useRef(null);
+  const location = useLocation();
+  const auth = useAuth();
+  const displayName = auth.user?.fullName ? auth.user.fullName.split(' ')[0] : 'Sunshine';
+  
+  const [mood, setMood] = useState("");
+  const [streak, setStreak] = useState(0);
+  const [longest, setLongest] = useState(0);
+  const [badges, setBadges] = useState([]); 
+  const [toast, setToast] = useState(null); 
+  const [modalOpen, setModalOpen] = useState(false);
+  const [weeklyMoodData, setWeeklyMoodData] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Local demo state: quick mood check-in
-  const [mood, setMood] = useState(null);
-  const [note, setNote] = useState("");
+  // 🔐 TOKEN GUARD
+  useEffect(() => {
+    if (auth.isLoading) return;
+    if (!auth.isAuthenticated) {
+      navigate("/login", { replace: true });
+    }
+  }, [auth.isLoading, auth.isAuthenticated, navigate]);
+
+  const moods = [
+    { emoji: "🌟", label: "Great", value: "great", bg: "bg-[var(--joy-sunshine)]/30" },
+    { emoji: "😊", label: "Good", value: "good", bg: "bg-teal-300/50" },
+    { emoji: "🌤️", label: "Okay", value: "okay", bg: "bg-teal-200/40" },
+    { emoji: "🌧️", label: "Low", value: "low", bg: "bg-green-300/50" },
+    { emoji: "🌪️", label: "Rough", value: "rough", bg: "bg-green-200/40" },
+  ];
+
+  // ✅ UPDATED: Added paths for navigation
+  const quickActions = [
+    {
+      icon: "🧘",
+      title: "Quick Calm",
+      description: "2-minute breathing exercise",
+      path: "/breathing",
+      gradient: true,
+      style: "bg-gradient-to-br from-green-400 to-green-600 text-white shadow-[var(--shadow-soft)]",
+    },
+    {
+      icon: "📝",
+      title: "Journal",
+      description: "Reflect on your day",
+      path: "/journal",
+      gradient: false,
+      style: "bg-white/80 shadow-[var(--shadow-soft)] border border-black/10",
+    },
+    {
+      icon: "🎧",
+      title: "Meditation",
+      description: "Guided audio practice",
+      path: "/meditation",
+      gradient: false,
+      style: "bg-white/80 shadow-[var(--shadow-soft)] border border-black/10",
+    },
+  ];
+
+  const navItems = [
+    { icon: "🏠", label: "Home", to: "/dashboard" },
+    { icon: "🧠", label: "Assessments", to: "/assessments" },
+    { icon: "📜", label: "History", to: "/history" },
+    { icon: "💡", label: "Guidance", to: "/guidance" },
+    { icon: "👤", label: "Profile", to: "/profile" },
+  ];
+
+  const [improvementAreas, setImprovementAreas] = useState([
+    { area: "Sleep", progress: 0 },
+    { area: "Focus", progress: 0 },
+    { area: "Stress", progress: 0 },
+  ]);
+
+  // Compute improvement areas from assessment data
+  const computeImprovementAreasFromAssessment = (assessment) => {
+    if (!assessment) return [
+      { area: "Sleep", progress: 0 },
+      { area: "Focus", progress: 0 },
+      { area: "Stress", progress: 0 },
+    ];
+
+    const clamp = (n) => Math.max(0, Math.min(100, Math.round(n)));
+
+    const sleep = Number(assessment.sleep) || 3; 
+    const stress = Number(assessment.stress) || 3; 
+    const mood = Number(assessment.mood) || null; 
+    const moodScore = Number(assessment.moodScore) || null; 
+
+    const sleepProgress = clamp((sleep / 5) * 100);
+    const focusProgress = clamp(moodScore ? (moodScore / 10) * 100 : (mood ? (mood / 5) * 100 : 50));
+    const stressProgress = clamp(((5 - stress) / 4) * 100);
+
+    return [
+      { area: "Sleep", progress: sleepProgress },
+      { area: "Focus", progress: Math.round(focusProgress) },
+      { area: "Stress", progress: Math.round(stressProgress) },
+    ];
+  };
+
+  const thresholds = [
+    { days: 7, id: "weekly", title: "Weekly Warrior", msg: "7-day streak! Keep that momentum 🔥", emoji: "🔥", color: "bg-yellow-100 text-yellow-800" },
+    { days: 30, id: "monthly", title: "Monthly Master", msg: "30-day streak! Incredible commitment 🌟", emoji: "🌟", color: "bg-green-100 text-green-800" },
+    { days: 365, id: "yearly", title: "Yearly Sage", msg: "365-day streak! Legendary consistency 🏆", emoji: "🏆", color: "bg-purple-100 text-purple-800" },
+  ];
+
+  const navLinkBase = "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-black/60";
+
+  // ---------- REFRESH DASHBOARD ----------
+  const refreshDashboard = async () => {
+    try {
+      const token = auth.token;
+
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/dashboard`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!res.ok) throw new Error("Dashboard fetch failed");
+
+      const data = await res.json();
+      
+      const fetchedStreak = data.streak?.current || data.currentStreak || data.streak || 0;
+      const fetchedLongest = data.streak?.longest || data.longestStreak || 0;
+      const fetchedBadges = data.streak?.badges || data.badges || [];
+
+      setStreak(Number(fetchedStreak));
+      setLongest(Number(fetchedLongest));
+      setBadges(fetchedBadges);
+
+      setWeeklyMoodData(
+        (data.weeklyMood || []).map((d) => ({
+          day: d.day,
+          moodScore: d.score,
+        }))
+      );
+      setImprovementAreas(computeImprovementAreasFromAssessment(data.latestAssessment));
+    } catch (err) {
+      console.error("Dashboard error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const tokenFromURL = params.get("token");
+    if (auth.isLoading) return;
+    refreshDashboard();
+  }, [auth.isLoading, auth.token, location.key]);
 
-    if (tokenFromURL) {
-      localStorage.setItem("token", tokenFromURL);
+  // Listen for `assessment:saved` events
+  useEffect(() => {
+    const handler = (e) => {
+      const saved = e?.detail;
+      if (!saved) {
+        refreshDashboard();
+        return;
+      }
+      refreshDashboard();
+    };
 
-      const url = new URL(window.location.href);
-      url.searchParams.delete("token");
-      window.history.replaceState({}, "", url.toString());
+    window.addEventListener('assessment:saved', handler);
+    return () => window.removeEventListener('assessment:saved', handler);
+  }, [auth.token]);
+
+  // If navigation brought back a savedAssessment
+  useEffect(() => {
+    const saved = location.state?.savedAssessment;
+    if (!saved) return;
+    try {
+        setToast({ title: 'Assessment saved', msg: 'Your latest responses are reflected below.' });
+        setTimeout(() => setToast(null), 3500);
+        refreshDashboard(); // Refresh data immediately
+        // Clear state without reloading
+        navigate(location.pathname, { replace: true, state: {} });
+    } catch (e) {
+        console.warn("Error handling saved assessment state", e);
     }
-  }, []);
-
-  const token = localStorage.getItem("token");
+  }, [location.state?.savedAssessment]);
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
-    navigate("/");
+    try {
+      auth.logout();
+    } catch (e) {
+      console.warn("Could not clear auth on logout", e);
+    }
+    navigate("/login", { replace: true });
   };
 
-  // GSAP animations
-  useEffect(() => {
-    const ctx = gsap.context(() => {
-      gsap.from(".page-header", {
-        y: 20,
-        opacity: 0,
-        duration: 0.7,
-        ease: "power2.out",
-      });
+  const openStreakModal = () => setModalOpen(true);
+  const closeStreakModal = () => setModalOpen(false);
 
-      gsap.from(".stat-card", {
-        y: 15,
-        opacity: 0,
-        duration: 0.55,
-        ease: "power2.out",
-        stagger: 0.08,
-        delay: 0.1,
-      });
-
-      gsap.from(".dash-card", {
-        y: 30,
-        opacity: 0,
-        duration: 0.65,
-        ease: "power2.out",
-        stagger: 0.12,
-        delay: 0.25,
-      });
-    }, pageRef);
-
-    return () => ctx.revert();
-  }, []);
-
-  // Demo handlers for quick mood check-in
-  const handleMoodClick = (value) => {
-    setMood(value);
+  // ✅ UPDATED: Helper for mood score
+  const getMoodScore = (moodValue) => {
+    switch (moodValue) {
+      case "great": return 10;
+      case "good": return 8;
+      case "okay": return 6;
+      case "low": return 4;
+      case "rough": return 2;
+      default: return 5;
+    }
   };
 
-  const handleSaveCheckIn = () => {
-    // For now just console.log – later you can send this to backend
-    console.log("Today check-in:", { mood, note });
-    alert("Your quick check-in is saved (demo only).");
+  // ✅ UPDATED: Function to save mood to DB
+  const handleMoodSelect = async (selectedMood) => {
+    setMood(selectedMood); // Immediate UI update
+    
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/moods`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({
+          mood: selectedMood,
+          score: getMoodScore(selectedMood),
+          date: new Date().toISOString(),
+        }),
+      });
+
+      if (res.ok) {
+        setToast({ title: "Mood Logged", msg: "Added to your history" });
+        setTimeout(() => setToast(null), 3000);
+        refreshDashboard(); // Refresh chart immediately
+      } else {
+        throw new Error("Failed to save");
+      }
+    } catch (err) {
+      console.error(err);
+      setToast({ title: "Error", msg: "Could not save mood" });
+    }
   };
 
   return (
-    <div
-      ref={pageRef}
-      className="min-h-screen bg-[#F5EEDF] text-[#1A1A1A] px-6 py-8"
-    >
-      {/* Subtle gradient overlay */}
-      <div className="pointer-events-none fixed inset-0 opacity-60 mix-blend-soft-light bg-[radial-gradient(circle_at_top,_#0F766E22,_transparent_60%),radial-gradient(circle_at_bottom,_#F9731622,_transparent_55%)]" />
+    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] overflow-x-hidden relative">
+      {/* TOAST */}
+      {toast && (
+        <div className="fixed right-6 top-6 z-50">
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="px-4 py-3 rounded-xl bg-white/95 shadow-[var(--shadow-soft)] border border-black/5"
+          >
+            <div className="font-semibold">{toast.title}</div>
+            <div className="text-sm text-black/60">{toast.msg}</div>
+          </motion.div>
+        </div>
+      )}
 
-      <div className="relative max-w-6xl mx-auto space-y-8">
-        {/* Header */}
-        <header className="page-header flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-2">
+      {/* STREAK MODAL */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" aria-modal="true" role="dialog">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeStreakModal} />
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="relative z-10 w-full max-w-xl p-6 rounded-2xl bg-white/95 shadow-[var(--shadow-float)] border border-black/10"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-semibold">Achievements</h2>
+                <p className="text-sm text-black/60 mt-1">Your streak progress and longest streak</p>
+              </div>
+              <button onClick={closeStreakModal} className="text-sm px-3 py-1 rounded-lg bg-black/5">✕</button>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-4">
+              <div className="p-4 rounded-xl bg-gradient-to-br from-green-50 to-green-100 border border-green-200 flex items-center justify-between">
+                <div>
+                  <div className="text-xs text-black/50">Current Streak</div>
+                  <div className="text-2xl font-bold">{streak} day{streak !== 1 ? "s" : ""}</div>
+                </div>
+                <div className="text-3xl">🔥</div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-white border border-black/10 flex items-center justify-between">
+                <div>
+                  <div className="text-xs text-black/50">Longest Streak</div>
+                  <div className="text-2xl font-bold">{longest} day{longest !== 1 ? "s" : ""}</div>
+                </div>
+                <div className="text-3xl">🏅</div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-white border border-black/10">
+                <div className="text-sm font-medium mb-2">Badges</div>
+                <div className="flex gap-2 flex-wrap">
+                  {thresholds.map((t) => {
+                    const earned = badges.includes(t.id);
+                    return (
+                      <div
+                        key={t.id}
+                        className={`px-3 py-2 rounded-full text-sm flex items-center gap-2 ${
+                          earned ? "bg-green-100 text-green-800" : "bg-black/5 text-black/40"
+                        }`}
+                      >
+                        <span>{t.emoji}</span>
+                        <span>{t.title}</span>
+                        {!earned && <span className="text-xs text-black/40">({t.days}d)</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="text-sm text-black/60">
+                Keep logging in daily to grow your streak — consistency builds momentum.
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* BACKGROUND BLOBS */}
+      <div className="fixed inset-0 -z-10 pointer-events-none overflow-hidden">
+        <div className="nature-blob -top-32 -right-32 w-96 h-96 bg-green-300/30"></div>
+        <div className="nature-blob top-1/4 -left-20 w-80 h-80 bg-teal-300/20"></div>
+        <div className="nature-blob bottom-1/3 right-1/4 w-72 h-72 bg-yellow-200/20"></div>
+      </div>
+
+      {/* SIDEBAR */}
+      <aside className="hidden md:flex fixed left-0 top-0 w-64 h-screen flex-col p-6 bg-white/80 backdrop-blur-xl border-r border-green-300/30 shadow-[var(--shadow-soft)] overflow-y-auto">
+        <div className="flex items-center gap-3 mb-12">
+          <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-xl shadow-[var(--shadow-soft)] bg-gradient-to-br from-green-400 to-green-600">
+            🌿
+          </div>
           <div>
-            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#F9F4EA] border border-[#E4DCCF] text-[11px] tracking-[0.2em] uppercase text-[#0F766E]">
-              <span className="w-2 h-2 rounded-full bg-[#0F766E] animate-pulse" />
-              Nivana
-            </span>
-            <h1 className="mt-3 text-3xl md:text-4xl font-bold text-[#134E4A]">
-              Your Mental Health Dashboard 🧠
+            <div className="font-semibold text-lg">Mindnest</div>
+            <div className="text-xs text-black/50">Wellness Hub</div>
+          </div>
+        </div>
+
+        <nav className="space-y-3 flex-1">
+          {navItems.map((item) => (
+            <NavLink
+              key={item.label}
+              to={item.to}
+              className={({ isActive }) =>
+                `${navLinkBase} ${
+                  isActive
+                    ? "text-[var(--foreground)] bg-green-300/30 shadow-[var(--shadow-float)]"
+                    : "hover:text-[var(--foreground)] hover:bg-green-300/20"
+                }`
+              }
+            >
+              <span className="text-xl">{item.icon}</span>
+              <span className="font-medium">{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+
+        <button
+          onClick={handleLogout}
+          className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-green-400 to-green-600 text-white font-semibold shadow-[var(--shadow-soft)] hover:shadow-[var(--shadow-float)] transition-all"
+        >
+          🚪 Logout
+        </button>
+      </aside>
+
+      {/* MAIN CONTENT */}
+      <main className="md:ml-64 p-6 md:p-8">
+        {/* HEADER */}
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <div className="text-sm text-black/50">Welcome back,</div>
+            <h1 className="text-4xl font-bold">
+              Hello, <span className="joy-gradient-text">{displayName}</span> ☀️
             </h1>
-            <p className="text-[#4F4F4F] mt-2 text-sm md:text-base max-w-xl">
-              A calm space to check in with your mood, reflect on your
-              assessments, and access support whenever you need it.
-            </p>
           </div>
 
-          <div className="flex flex-col items-end gap-2">
-            <div className="px-3 py-2 rounded-2xl bg-[#F9F4EA] border border-[#E4DCCF] text-xs shadow-sm text-right">
-              <p className="font-semibold text-[#134E4A]">
-                {token ? "Logged in to Nivana" : "Not authenticated"}
-              </p>
-              <p className="text-[11px] text-[#7A7A7A] mt-1">
-                {token
-                  ? "Session token saved in localStorage."
-                  : "Sign in again to unlock all features."}
-              </p>
+          {/* STREAK + BADGES (compact) */}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={openStreakModal}
+              className="flex items-center gap-2 bg-white/5 px-3 py-2 rounded-xl border border-black/5 shadow-[var(--shadow-soft)]"
+            >
+              <div className="text-xl">🔥</div>
+              <div className="text-sm font-semibold">{streak}</div>
+            </button>
+
+            <div className="flex gap-2 items-center">
+              {badges.length === 0 ? (
+                <div className="text-xs text-black/50">No badges yet</div>
+              ) : (
+                badges.map((b) => {
+                  const t = thresholds.find((x) => x.id === b);
+                  return (
+                    <div key={b} className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-800 flex items-center gap-1">
+                      <span>{t?.emoji}</span>
+                      <span className="font-medium">{t?.title}</span>
+                    </div>
+                  );
+                })
+              )}
             </div>
-
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 rounded-xl bg-[#0F766E] hover:bg-[#115E59] text-white text-sm font-medium shadow-md shadow-[#0F766E22] transition-transform hover:-translate-y-0.5"
-            >
-              Logout
-            </button>
           </div>
-        </header>
+        </div>
 
-        {/* Quick stats row */}
-        <section className="grid gap-4 md:grid-cols-3">
-          <div className="stat-card bg-[#F9F4EA] border border-[#E4DCCF] rounded-2xl p-4 shadow-sm">
-            <p className="text-[11px] uppercase tracking-wide text-[#7A7A7A]">
-              Check-in streak
-            </p>
-            <p className="mt-2 text-2xl font-semibold text-[#134E4A]">3 days</p>
-            <p className="mt-1 text-xs text-[#7A7A7A]">
-              Keeping small, regular check-ins helps build self-awareness.
-            </p>
-          </div>
-
-          <div className="stat-card bg-[#F9F4EA] border border-[#E4DCCF] rounded-2xl p-4 shadow-sm">
-            <p className="text-[11px] uppercase tracking-wide text-[#7A7A7A]">
-              Last assessment
-            </p>
-            <p className="mt-2 text-sm font-medium text-[#134E4A]">
-              2 days ago · Moderate stress
-            </p>
-            <p className="mt-1 text-xs text-[#7A7A7A]">
-              Try to revisit the self assessment at least once a week.
-            </p>
-          </div>
-
-          <div className="stat-card bg-[#F9F4EA] border border-[#E4DCCF] rounded-2xl p-4 shadow-sm">
-            <p className="text-[11px] uppercase tracking-wide text-[#7A7A7A]">
-              Recent mood trend
-            </p>
-            <p className="mt-2 text-sm font-medium text-[#134E4A]">
-              Slightly improving 🌱
-            </p>
-            <p className="mt-1 text-xs text-[#7A7A7A]">
-              Progress can be slow and gentle. Every step counts.
-            </p>
-          </div>
-        </section>
-
-        {/* Main grid: Assessment / History / Resources / Profile */}
-        <section className="grid gap-6 md:grid-cols-3">
-          {/* Assessment */}
-          <article className="dash-card md:col-span-2 bg-[#F9F4EA] border border-[#E4DCCF] rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
-            <h2 className="text-xl font-semibold text-[#134E4A] mb-2">
-              Start Self Assessment
-            </h2>
-            <p className="text-[#4F4F4F] text-sm mb-3">
-              A guided set of questions to help you understand how you&apos;ve
-              really been feeling—emotionally, mentally, and physically.
-            </p>
-            <ul className="list-disc list-inside text-[12px] text-[#7A7A7A] mb-4">
-              <li>Takes around 3–5 minutes.</li>
-              <li>Responses stay private to you.</li>
-              <li>Helps you track patterns over time.</li>
-            </ul>
-            <button
-              onClick={() => navigate("/assessment")}
-              className="px-4 py-2 rounded-xl bg-[#0F766E] hover:bg-[#115E59] text-white text-sm font-semibold shadow-sm shadow-[#0F766E33] transition-transform hover:-translate-y-0.5"
-            >
-              Begin Assessment →
-            </button>
-          </article>
-
-          {/* History */}
-          <article className="dash-card bg-[#F9F4EA] border border-[#E4DCCF] rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
-            <h2 className="text-lg font-semibold text-[#134E4A] mb-2">
-              Your Recent Status
-            </h2>
-            <p className="text-[#4F4F4F] text-sm mb-3">
-              Revisit your previous assessments to notice patterns in your mood,
-              energy, and stress levels.
-            </p>
-            <ul className="list-disc list-inside text-[12px] text-[#7A7A7A] mb-4">
-              <li>Track how your scores shift over time.</li>
-              <li>Notice what weeks felt easier or harder.</li>
-            </ul>
-            <button
-              onClick={() => navigate("/history")}
-              className="px-3 py-2 rounded-xl bg-[#115E59] hover:bg-[#0F766E] text-white text-xs font-medium shadow-sm shadow-[#115E5933] transition-transform hover:-translate-y-0.5"
-            >
-              View History
-            </button>
-          </article>
-
-          {/* Resources */}
-          <article className="dash-card md:col-span-2 bg-[#F9F4EA] border border-[#E4DCCF] rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
-            <h2 className="text-lg font-semibold text-[#134E4A] mb-2">
-              Guidance & Support
-            </h2>
-            <p className="text-[#4F4F4F] text-sm mb-3">
-              Browse simple grounding practices, self-care ideas, and mental
-              health information you can return to anytime.
-            </p>
-            <div className="flex flex-wrap gap-2 mb-4 text-[11px]">
-              <span className="px-3 py-1 rounded-full bg-white border border-[#E4DCCF] text-[#134E4A]">
-                Breathing exercises
-              </span>
-              <span className="px-3 py-1 rounded-full bg-white border border-[#E4DCCF] text-[#134E4A]">
-                Journaling prompts
-              </span>
-              <span className="px-3 py-1 rounded-full bg-white border border-[#E4DCCF] text-[#134E4A]">
-                Grounding techniques
-              </span>
+        {/* MOOD SELECTOR */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-8 rounded-[2rem] bg-white/80 shadow-[var(--shadow-soft)] backdrop-blur-xl border border-black/10 mb-8"
+        >
+          <div className="flex justify-between mb-6">
+            <div>
+              <h2 className="text-2xl font-bold">How are you feeling today?</h2>
+              <p className="text-sm text-black/50">Your mood shapes your day</p>
             </div>
-            <button
-              onClick={() => navigate("/resources")}
-              className="px-4 py-2 rounded-xl bg-[#0F766E] hover:bg-[#115E59] text-white text-sm font-semibold shadow-sm shadow-[#0F766E33] transition-transform hover:-translate-y-0.5"
-            >
-              Explore Resources →
-            </button>
-          </article>
+            <span className="text-4xl">🌸</span>
+          </div>
 
-          {/* Profile */}
-          <article className="dash-card bg-[#F9F4EA] border border-[#E4DCCF] rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
-            <h2 className="text-lg font-semibold text-[#134E4A] mb-2">
-              Your Profile
-            </h2>
-            <p className="text-[#4F4F4F] text-sm mb-3">
-              Update your preferences and how often Nivana reminds you to check
-              in with yourself.
-            </p>
-            <ul className="list-disc list-inside text-[12px] text-[#7A7A7A] mb-4">
-              <li>Set reminder frequency.</li>
-              <li>Update your contact email.</li>
-            </ul>
-            <button
-              onClick={() => navigate("/profile")}
-              className="px-3 py-2 rounded-xl bg-[#115E59] hover:bg-[#0F766E] text-white text-xs font-medium shadow-sm shadow-[#115E5933] transition-transform hover:-translate-y-0.5"
-            >
-              Profile Settings
-            </button>
-          </article>
-        </section>
-
-        {/* Today’s quick check-in */}
-        <section className="dash-card bg-[#F9F4EA] border border-[#E4DCCF] rounded-2xl p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-[#134E4A] mb-1">
-            Today&apos;s Quick Check-in
-          </h2>
-          <p className="text-sm text-[#4F4F4F] mb-4 max-w-xl">
-            In one tap, note how you&apos;re feeling right now. This doesn&apos;t
-            replace the full assessment—it just gives you a gentle daily
-            snapshot.
-          </p>
-
-          <div className="flex flex-wrap gap-2 mb-4">
-            {[
-              { id: "good", label: "Feeling okay 🙂" },
-              { id: "neutral", label: "In between 😐" },
-              { id: "low", label: "Feeling low 💭" },
-            ].map((m) => (
+          <div className="grid grid-cols-5 gap-3">
+            {moods.map((m) => (
               <button
-                key={m.id}
-                type="button"
-                onClick={() => handleMoodClick(m.id)}
-                className={`px-3 py-2 rounded-full text-xs border transition shadow-sm ${
-                  mood === m.id
-                    ? "bg-[#0F766E] text-white border-[#0F766E]"
-                    : "bg-white border-[#E4DCCF] text-[#134E4A] hover:border-[#0F766E]/50"
-                }`}
+                key={m.value}
+                onClick={() => handleMoodSelect(m.value)}
+                className={`
+                  p-4 rounded-2xl transition-all border-2
+                  ${m.bg}
+                  ${
+                    mood === m.value
+                      ? "border-green-500 shadow-[var(--shadow-float)] scale-105"
+                      : "border-white/30 hover:border-green-400/50 hover:scale-105"
+                  }
+                `}
               >
-                {m.label}
+                <div className="text-3xl mb-2">{m.emoji}</div>
+                <div className="text-xs font-semibold text-green-700">{m.label}</div>
               </button>
             ))}
           </div>
+        </motion.div>
 
-          <div className="grid md:grid-cols-[2fr,1fr] gap-4 items-start">
-            <div>
-              <label className="block text-xs font-medium text-[#134E4A] mb-1">
-                Optional note for yourself
-              </label>
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={2}
-                placeholder="Anything you want to remember about today (totally optional)…"
-                className="w-full text-sm rounded-2xl border border-[#E4DCCF] bg-white/80 px-3 py-2 outline-none focus:border-[#0F766E] focus:ring-1 focus:ring-[#0F766E]"
-              />
+        {/* QUICK ACTIONS + GRAPHS */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          {/* CHARTS */}
+          <div className="lg:col-span-2 grid grid-rows-2 gap-6">
+            {/* Mood Line Chart */}
+            <div className="p-6 rounded-[2rem] bg-white/80 shadow-[var(--shadow-soft)] border border-black/10">
+              <div className="flex justify-between items-center mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold">Mood Over Time</h3>
+                  <p className="text-xs text-black/50">Last 7 days</p>
+                </div>
+                <div className="text-sm text-black/50">Stable ↑</div>
+              </div>
+
+              <div style={{ height: 220 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={weeklyMoodData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="day" />
+                    <YAxis domain={[0, 10]} />
+                    <Tooltip />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="moodScore"
+                      stroke="#4ade80"
+                      strokeWidth={3}
+                      dot={{ r: 3 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
-            <div className="flex flex-col gap-2 text-xs text-[#7A7A7A]">
-              <p>
-                Quick check-ins can help you notice patterns like: “Mondays feel
-                heavier” or “I sleep better when I take breaks from my phone”.
-              </p>
-              <button
-                type="button"
-                onClick={handleSaveCheckIn}
-                className="self-start px-4 py-2 rounded-xl bg-[#0F766E] hover:bg-[#115E59] text-white text-xs font-semibold shadow-sm shadow-[#0F766E33] transition-transform hover:-translate-y-0.5 mt-1"
-              >
-                Save today&apos;s check-in (demo)
-              </button>
+            {/* Improvement Areas */}
+            <div className="p-6 rounded-[2rem] bg-white/80 shadow-[var(--shadow-soft)] border border-black/10">
+              <div className="flex justify-between items-center mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold">Improvement Areas</h3>
+                  <p className="text-xs text-black/50">Focus areas to work on this week</p>
+                </div>
+                <div className="text-sm text-black/50">3 items</div>
+              </div>
+
+              <div className="space-y-3">
+                {improvementAreas.map((it) => (
+                  <div key={it.area} className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium">{it.area}</div>
+                      <div className="text-xs text-black/50">Progress</div>
+                    </div>
+
+                    <div className="w-1/2 ml-4">
+                      <div className="w-full bg-black/5 h-3 rounded-full overflow-hidden">
+                        <div
+                          className="h-3 rounded-full"
+                          style={{
+                            width: `${it.progress}%`,
+                            background: "linear-gradient(90deg, #4ade80, #16a34a)",
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="w-12 text-right text-sm font-semibold">{it.progress}%</div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </section>
 
-        <footer className="pt-4 text-[11px] text-[#7A7A7A] text-center">
-          Nivana · Mental wellness grows from small, consistent moments of
-          awareness.
-        </footer>
-      </div>
+          {/* QUICK ACTIONS */}
+          <div className="p-6 rounded-[2rem] bg-white/80 shadow-[var(--shadow-soft)] border border-black/10">
+            <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
+            <div className="grid grid-cols-1 gap-4">
+              {quickActions.map((action) => (
+                <button
+                  key={action.title}
+                  onClick={() => navigate(action.path)}
+                  className={`p-4 rounded-xl text-left transition-all ${action.style} hover:scale-[1.02] active:scale-95`}
+                >
+                  <div className="text-2xl mb-1">{action.icon}</div>
+                  <div className="font-medium">{action.title}</div>
+                  <div className="text-xs opacity-80">{action.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
-};
-
-export default Dashboard;
+}

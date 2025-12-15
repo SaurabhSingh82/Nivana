@@ -1,8 +1,6 @@
-// This typically points to your backend server port (usually 5000 or 8000 for Node/Express)
 import axios from 'axios';
 const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000') + '/api';
 
-// axios instance that auto-attaches token from localStorage and handles 401s
 const instance = axios.create({ baseURL: API_BASE_URL, withCredentials: true });
 
 instance.interceptors.request.use((config) => {
@@ -19,7 +17,6 @@ instance.interceptors.response.use(
     if (err?.response?.status === 401) {
       try {
         localStorage.removeItem('token');
-        // if user's on client, refresh to /login
         if (typeof window !== 'undefined') {
           window.location.replace('/login');
         }
@@ -56,6 +53,11 @@ export const apiService = {
   },
   submitAssessment: async (payload) => {
     const res = await instance.post('/assessments/submit', payload);
+    return res.data;
+  },
+  // ✅ Handle FormData for Profile Update
+  updateUserProfile: async (formData) => {
+    const res = await instance.put('/auth/profile', formData);
     return res.data;
   },
 };

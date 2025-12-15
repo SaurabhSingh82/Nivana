@@ -2,11 +2,12 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 
+// --- LOGIN ---
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-
     const user = await User.findOne({ email });
+
     if (!user || user.provider !== "local") {
       return res.status(400).json({ msg: "Invalid credentials" });
     }
@@ -16,17 +17,13 @@ exports.login = async (req, res) => {
       return res.status(400).json({ msg: "Invalid credentials" });
     }
 
-    // 🔥 UPDATED JWT PAYLOAD
     const token = jwt.sign(
-      {
-        id: user._id,       // MongoDB ObjectId (for relations)
-        userId: user.userId // Numeric ID (1,2,3...)
-      },
+      { id: user._id, userId: user.userId },
       process.env.JWT_SECRET || "secretkey",
       { expiresIn: "7d" }
     );
 
-    // ✅ RESPONSE (unchanged behaviour)
+    // Return full user object including profileImage
     return res.json({
       token,
       user: {
@@ -34,11 +31,87 @@ exports.login = async (req, res) => {
         userId: user.userId,
         fullName: user.fullName,
         email: user.email,
+        bio: user.bio,
+        location: user.location,
+        wellnessFocus: user.wellnessFocus,
+        emergencyName: user.emergencyName,
+        emergencyPhone: user.emergencyPhone,
+        reminderPreference: user.reminderPreference,
+        profileImage: user.profileImage, 
+        createdAt: user.createdAt
       },
     });
 
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({ msg: "Server error" });
+  }
+};
+
+// --- SIGNUP ---
+exports.signup = async (req, res) => {
+  try {
+    const { fullName, email, password } = req.body;
+    if (await User.findOne({ email })) return res.status(400).json({ msg: "User exists" });
+
+    const hash = await bcrypt.hash(password, 10);
+    // Note: Ensure userId logic exists in your app if strictly required
+    const user = await User.create({ fullName, email, password: hash, provider: "local" });
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
+    res.json({ token, user });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ msg: "Server error" });
+  }
+};
+
+// --- GET ME ---
+exports.getMe = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password");
+    res.json({ user });
+  } catch (err) {
+    res.status(500).json({ msg: "Server error" });
+  }
+};
+
+// --- ✅ UPDATE PROFILE (Handles File Upload) ---
+exports.updateProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const updates = req.body;
+
+    const allowedUpdates = [
+      'fullName', 'bio', 'location', 'wellnessFocus', 
+      'emergencyName', 'emergencyPhone', 'reminderPreference'
+    ];
+
+    const actualUpdates = {};
+    Object.keys(updates).forEach((key) => {
+      if (allowedUpdates.includes(key)) {
+        actualUpdates[key] = updates[key];
+      }
+    });
+
+    // ✅ Handle Image Upload
+    if (req.file) {
+      // Store relative path in DB
+      actualUpdates.profileImage = `/uploads/profile_images/${req.file.filename}`;
+    }
+
+    const user = await User.findByIdAndUpdate(userId, actualUpdates, { 
+      new: true, 
+      runValidators: true 
+    }).select('-password');
+
+    if (!user) {
+      return res.status(404).json({ success: false, msg: "User not found" });
+    }
+
+    res.json({ success: true, user });
+  } catch (err) {
+    console.error("Update error:", err);
+    res.status(500).json({ success: false, msg: "Server error updating profile" });
   }
 };

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import "./LandingPage2.css";
 
+
 export default function About() {
   const cards = [
     {
