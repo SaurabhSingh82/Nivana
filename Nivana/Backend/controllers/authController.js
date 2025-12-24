@@ -108,7 +108,7 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-// --- ✅ FINAL VERSION: FORGOT PASSWORD (BREVO) ---
+// --- ✅ GMAIL VERSION: FORGOT PASSWORD ---
 exports.forgotPassword = async (req, res) => {
   const { email } = req.body;
   let user; 
@@ -134,19 +134,25 @@ exports.forgotPassword = async (req, res) => {
       <a href="${resetUrl}">${resetUrl}</a>
     `;
 
-    // SMTP Config
+    // ✅ GMAIL CONFIG FOR RENDER (Using Port 465 & IPv4)
     const transporter = nodemailer.createTransport({
-      host: "smtp-relay.brevo.com", 
-      port: 587,
-      secure: false, 
+      service: 'gmail',
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true, 
       auth: {
-        user: "anujyadav992241@gmail.com", // Direct Email
-        pass: process.env.EMAIL_PASS,       // Key from Render
+        user: process.env.EMAIL_USER, // Your Gmail Email
+        pass: process.env.EMAIL_PASS, // Your Gmail App Password
       },
+      tls: {
+        rejectUnauthorized: false
+      },
+      connectionTimeout: 15000, // Wait 15s before timeout
+      family: 4 // Force IPv4 to avoid IPv6 blocks
     });
 
     await transporter.sendMail({
-      from: '"Nivana Support" <anujyadav992241@gmail.com>', // Verified Sender
+      from: `"Nivana Support" <${process.env.EMAIL_USER}>`, 
       to: user.email,
       subject: "Password Reset Request - NIVANA",
       html: message,
@@ -155,13 +161,13 @@ exports.forgotPassword = async (req, res) => {
     res.status(200).json({ success: true, data: "Email Sent Successfully" });
 
   } catch (err) {
-    console.error("Email Error:", err);
+    console.error("Gmail Email Error:", err);
     if (user) {
       user.resetPasswordToken = undefined;
       user.resetPasswordExpire = undefined;
       await user.save({ validateBeforeSave: false }); 
     }
-    res.status(500).json({ msg: "Email could not be sent. Please try again." });
+    res.status(500).json({ msg: "Email could not be sent. Check Render logs." });
   }
 };
 
