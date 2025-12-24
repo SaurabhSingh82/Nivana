@@ -141,13 +141,14 @@ exports.forgotPassword = async (req, res) => {
 
     // ✅ FIXED: Email Config for Render
     const transporter = nodemailer.createTransport({
-      service: "gmail", // Small 'g' is standard
+      host: "smtp.gmail.com", 
+      port: 465,              // Port 465 hamesha open rehta hai
+      secure: true,           // SSL Security On (Ye zaroori hai)
       auth: {
         user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS // App Password (without spaces)
+        pass: process.env.EMAIL_PASS,
       },
     });
-
     await transporter.sendMail({
       to: user.email,
       from: `"Nivana Support" <${process.env.EMAIL_USER}>`, // Sender Name Add kiya
