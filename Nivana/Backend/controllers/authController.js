@@ -1,7 +1,7 @@
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const crypto = require("crypto");
-const nodemailer = require("nodemailer");
+const crypto = require("crypto"); // Built-in module
+const nodemailer = require("nodemailer"); // Email sender
 const User = require("../models/User");
 
 // --- LOGIN ---
@@ -108,7 +108,7 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-// --- ✅ GMAIL VERSION: FORGOT PASSWORD (FIXED FOR RENDER) ---
+// --- ✅ FIXED: FORGOT PASSWORD (RENDER FRIENDLY) ---
 exports.forgotPassword = async (req, res) => {
   const { email } = req.body;
   let user; 
@@ -119,61 +119,60 @@ exports.forgotPassword = async (req, res) => {
       return res.status(404).json({ msg: "User not found" });
     }
 
+    // Reset Token Generate
     const resetToken = crypto.randomBytes(20).toString("hex");
+
+    // Hash karke DB me save (Security)
     user.resetPasswordToken = crypto.createHash("sha256").update(resetToken).digest("hex");
-    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; 
+    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 Minutes
 
     await user.save();
 
-    const clientURL = process.env.CLIENT_URL || "https://nivana.vercel.app";
+    // Reset URL Logic
+    // IMP: Render Env Vars me CLIENT_URL = https://nivana.vercel.app zaroor set karein
+    const clientURL = process.env.CLIENT_URL || "http://localhost:5173";
     const resetUrl = `${clientURL}/reset-password/${resetToken}`;
 
     const message = `
-      <h1>Password Reset Request</h1>
-      <p>Please click the link below to reset your password:</p>
-      <a href="${resetUrl}">${resetUrl}</a>
+      <h1>You have requested a password reset</h1>
+      <p>Please go to this link to reset your password:</p>
+      <a href=${resetUrl} clicktracking=off>${resetUrl}</a>
     `;
 
-    // ✅ GMAIL CONFIG OPTIMIZED FOR RENDER (Using Port 465 & IPv4)
+    // ✅ FIXED: Email Config for Render
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      host: "smtp.gmail.com",
-      port: 465,
-      secure: true, 
-      pool: true, // Connection pool use karein taaki Render connection na kaate
+      service: "gmail", // Small 'g' is standard
       auth: {
-        user: process.env.EMAIL_USER, // Your Gmail Email
-        pass: process.env.EMAIL_PASS, // Your Gmail 16-digit App Password
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS // App Password (without spaces)
       },
-      tls: {
-        rejectUnauthorized: false
-      },
-      connectionTimeout: 20000, // Wait 20s before timeout
-      family: 4 // Force IPv4 to avoid IPv6 block issues on cloud
     });
 
     await transporter.sendMail({
-      from: `"Nivana Support" <${process.env.EMAIL_USER}>`, 
       to: user.email,
+      from: `"Nivana Support" <${process.env.EMAIL_USER}>`, // Sender Name Add kiya
       subject: "Password Reset Request - NIVANA",
       html: message,
     });
 
-    res.status(200).json({ success: true, data: "Email Sent Successfully" });
+    res.status(200).json({ success: true, data: "Email Sent" });
 
   } catch (err) {
-    console.error("Gmail Error on Render:", err);
+    console.error("Email Error:", err);
+    
     if (user) {
       user.resetPasswordToken = undefined;
       user.resetPasswordExpire = undefined;
       await user.save({ validateBeforeSave: false }); 
     }
-    res.status(500).json({ msg: "Email could not be sent. Check your App Password." });
+    
+    res.status(500).json({ msg: "Email could not be sent" });
   }
 };
 
 // --- RESET PASSWORD ---
 exports.resetPassword = async (req, res) => {
+  // URL se token le kar hash match karein
   const resetPasswordToken = crypto.createHash("sha256").update(req.params.resetToken).digest("hex");
 
   try {
@@ -186,9 +185,11 @@ exports.resetPassword = async (req, res) => {
       return res.status(400).json({ msg: "Invalid or Expired Token" });
     }
 
+    // Naya Password Hash karein
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(req.body.password, salt);
 
+    // Tokens clear karein
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
 
