@@ -1,5 +1,4 @@
 const path = require("path");
-// ✅ FIX: .env file ka pakka path set kiya
 require("dotenv").config({ path: path.resolve(__dirname, "./.env") });
 
 const express = require("express");
@@ -9,46 +8,45 @@ const session = require("express-session");
 const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const GitHubStrategy = require("passport-github2").Strategy;
-const jwt = require("jsonwebtoken");
 
 const app = express();
 
 /* ---------------------- CONFIG ---------------------- */
+// Render par FRONTEND_URL zaroor set karein: https://nivana.vercel.app
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:5000";
 
-// Debugging: Check if Key is loaded
-console.log("🔑 API Key Status:", process.env.GEMINI_API_KEY ? "Loaded ✅" : "MISSING ❌");
+console.log("🚀 Server Config:", { FRONTEND_URL, BACKEND_URL });
 
 /* ---------------------- MIDDLEWARE ---------------------- */
-app.use(express.json()); // Body parser
+app.use(express.json());
 
 app.use(
   cors({
-    origin: FRONTEND_URL,
+    origin: FRONTEND_URL, // Sirf aapka frontend allow karega
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE"], // Allowed methods
-    allowedHeaders: ["Content-Type", "Authorization"], // Allowed headers
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// Serve Static Files (Uploaded Images)
 app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "some_session_secret",
+    secret: process.env.SESSION_SECRET || "super_secret_key",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === "production", // HTTPS only in production
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      secure: process.env.NODE_ENV === "production", // HTTPS only on Live
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      maxAge: 24 * 60 * 60 * 1000 
     }
   })
 );
 
 app.use(passport.initialize());
-app.use(passport.session());
+// Session use nahi kar rahe JWT ke liye, par init zaroori hai
 
 /* ---------------------- DB CONNECTION ---------------------- */
 mongoose
@@ -57,12 +55,9 @@ mongoose
   .catch((err) => console.log("❌ MongoDB Error:", err));
 
 /* ---------------------- MODELS ---------------------- */
-// ✅ Models yaha load ho rahe hain
 require("./models/User");
-require("./models/Assessment");
-require("./models/Mood");
 
-/* ---------------------- PASSPORT CONFIG ---------------------- */
+/* ---------------------- PASSPORT STRATEGIES ---------------------- */
 passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id, done) => {
   try {
@@ -74,13 +69,14 @@ passport.deserializeUser(async (id, done) => {
   }
 });
 
-// -- GOOGLE STRATEGY --
+// Google Strategy
 passport.use(
   new GoogleStrategy(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: `${BACKEND_URL}/auth/google/callback`,
+      // 🔥 Note: Callback URL me '/api' add kiya hai kyunki routes wahan mounted hain
+      callbackURL: `${BACKEND_URL}/api/auth/google/callback`,
     },
     async (_, __, profile, done) => {
       try {
@@ -93,7 +89,7 @@ passport.use(
             fullName: profile.displayName,
             email,
             provider: "google",
-            googleId: profile.id // Optional: Future proofing ke liye save kar sakte hain
+            googleId: profile.id
           });
         }
         done(null, user);
@@ -104,57 +100,44 @@ passport.use(
   )
 );
 
-// -- GITHUB STRATEGY (UPDATED & FIXED) --
+// GitHub Strategy
 passport.use(
   new GitHubStrategy(
     {
       clientID: process.env.GITHUB_CLIENT_ID,
       clientSecret: process.env.GITHUB_CLIENT_SECRET,
-      callbackURL: `${BACKEND_URL}/auth/github/callback`,
-      scope: ['user:email'] // Email access maangna zaroori hai
+      callbackURL: `${BACKEND_URL}/api/auth/github/callback`,
+      scope: ['user:email']
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
         const User = mongoose.model("User");
-
-        // 1. STEP 1: GitHub ID se check karo (Sabse Accurate)
-        // Note: Apne User Model me 'githubId' field zaroor add karna
         let user = await User.findOne({ githubId: profile.id });
 
-        if (user) {
-          return done(null, user); // Existing GitHub user -> Login
+        if (!user) {
+           let email = profile.emails && profile.emails.length > 0 
+           ? (profile.emails.find(e => e.primary) || profile.emails[0]).value 
+           : null;
+
+           if(email) {
+             user = await User.findOne({ email });
+             if(user) {
+               user.githubId = profile.id;
+               await user.save();
+               return done(null, user);
+             }
+           }
+
+           const finalEmail = email || `${profile.username}@github.local`;
+           user = await User.create({
+             fullName: profile.displayName || profile.username,
+             email: finalEmail,
+             provider: "github",
+             githubId: profile.id,
+           });
         }
-
-        // 2. STEP 2: Agar ID nahi mili, to Email se check karo (Merge Logic)
-        // GitHub array of emails bhejta hai, primary wala dhundo
-        let email = profile.emails && profile.emails.length > 0 
-                    ? (profile.emails.find(e => e.primary) || profile.emails[0]).value 
-                    : null;
-
-        if (email) {
-          user = await User.findOne({ email });
-          if (user) {
-            // User mil gaya! Ab isme githubId save kar do (Account Merged)
-            user.githubId = profile.id;
-            // user.provider = "github"; // Provider overwrite mat karna agar wo pehle se google/email tha
-            await user.save();
-            return done(null, user);
-          }
-        }
-
-        // 3. STEP 3: Create New User (Agar na ID mili, na Email)
-        const finalEmail = email || `${profile.username}@github.local`; // Fallback only if email hidden
-
-        user = await User.create({
-          fullName: profile.displayName || profile.username,
-          email: finalEmail,
-          provider: "github",
-          githubId: profile.id, // 🔥 IMPORTANT: Ye save karna zaroori hai for next login
-        });
-
-        done(null, user);
+        return done(null, user);
       } catch (err) {
-        console.error("GitHub Auth Error:", err);
         done(err, null);
       }
     }
@@ -162,64 +145,16 @@ passport.use(
 );
 
 /* ---------------------- ROUTES ---------------------- */
-
+// Saare Auth Routes '/api/auth' par chalenge
 app.use("/api/auth", require("./routes/auth"));
+
 app.use("/api/assessments", require("./routes/assessments"));
-
-// Dashboard Route
 app.use("/api/dashboard", require("./middleware/auth"), require("./routes/dashboard"));
-
-// Mood Routes
 app.use("/api/moods", require("./routes/mood"));
 app.use("/api/laughter", require("./routes/laughter"));
 
-
-/* ---------------------- OAUTH CALLBACK ROUTES ---------------------- */
-
-// Google
-app.get(
-  "/auth/google",
-  passport.authenticate("google", { scope: ["profile", "email"] })
-);
-
-app.get(
-  "/auth/google/callback",
-  passport.authenticate("google", { failureRedirect: `${FRONTEND_URL}/login` }),
-  (req, res) => {
-    const token = jwt.sign({ id: req.user._id }, process.env.JWT_SECRET);
-    res.redirect(`${FRONTEND_URL}/dashboard?token=${token}`);
-  }
-);
-
-// GitHub
-app.get(
-  "/auth/github",
-  passport.authenticate("github", { scope: ["user:email"] })
-);
-
-app.get(
-  "/auth/github/callback",
-  passport.authenticate("github", { failureRedirect: `${FRONTEND_URL}/login` }),
-  (req, res) => {
-    const token = jwt.sign({ id: req.user._id }, process.env.JWT_SECRET);
-    res.redirect(`${FRONTEND_URL}/dashboard?token=${token}`);
-  }
-);
-
-/* ---------------------- HEALTH CHECK ---------------------- */
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
-/* ---------------------- GLOBAL ERROR HANDLER ---------------------- */
-app.use((err, req, res, next) => {
-  console.error("🔥 Server Error Stack:", err.stack);
-  res.status(500).json({ 
-    msg: "Internal Server Error", 
-    error: err.message || "Something went wrong on the server" 
-  });
-});
-
-/* ---------------------- START SERVER ---------------------- */
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () =>
-  console.log(`🚀 Server running on http://localhost:${PORT}`)
+app.listen(process.env.PORT || 5000, () =>
+  console.log(`🚀 Server running`)
 );
