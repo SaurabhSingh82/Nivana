@@ -140,22 +140,20 @@ exports.forgotPassword = async (req, res) => {
     `;
 
     // ✅ FIXED: Email Config for Render
-    // ✅ FINAL FIX: Port 587 with Anti-Timeout Settings
+    // ✅ FINAL ATTEMPT: Force IPv4 (Ye connection problem solve kar dega)
     const transporter = nodemailer.createTransport({
       host: "smtp.gmail.com",
       port: 587,
-      secure: false, // 587 ke liye false hi rakhein
+      secure: false, 
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
       tls: {
-        ciphers: "SSLv3",       // Connection ko strong banata hai
-        rejectUnauthorized: false // Certificate errors ko ignore karta hai
+        rejectUnauthorized: false
       },
-      connectionTimeout: 10000, // 10 second tak wait karega
-      greetingTimeout: 5000,    // Greeting ka wait karega
-      socketTimeout: 10000      // Socket band hone se rokega
+      // 👇 MAGIC LINE: Ye server ko IPv6 use karne se rokegi
+      family: 4, 
     });
     await transporter.sendMail({
       to: user.email,
