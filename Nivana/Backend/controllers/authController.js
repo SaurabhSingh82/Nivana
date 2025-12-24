@@ -1,7 +1,7 @@
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const crypto = require("crypto"); 
-const axios = require("axios"); // 👈 Ise install karein: npm install axios
+const crypto = require("crypto");
+const nodemailer = require("nodemailer");
 const User = require("../models/User");
 
 // --- LOGIN ---
@@ -36,6 +36,7 @@ exports.login = async (req, res) => {
         createdAt: user.createdAt
       },
     });
+
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({ msg: "Server error" });
@@ -75,18 +76,30 @@ exports.updateProfile = async (req, res) => {
     const userId = req.user.id;
     const updates = req.body;
 
-    const allowedUpdates = ['fullName', 'bio', 'location', 'wellnessFocus', 'emergencyName', 'emergencyPhone', 'reminderPreference'];
+    const allowedUpdates = [
+      'fullName', 'bio', 'location', 'wellnessFocus', 
+      'emergencyName', 'emergencyPhone', 'reminderPreference'
+    ];
+
     const actualUpdates = {};
     Object.keys(updates).forEach((key) => {
-      if (allowedUpdates.includes(key)) actualUpdates[key] = updates[key];
+      if (allowedUpdates.includes(key)) {
+        actualUpdates[key] = updates[key];
+      }
     });
 
     if (req.file) {
       actualUpdates.profileImage = `/uploads/profile_images/${req.file.filename}`;
     }
 
-    const user = await User.findByIdAndUpdate(userId, actualUpdates, { new: true, runValidators: true }).select('-password');
-    if (!user) return res.status(404).json({ success: false, msg: "User not found" });
+    const user = await User.findByIdAndUpdate(userId, actualUpdates, { 
+      new: true, 
+      runValidators: true 
+    }).select('-password');
+
+    if (!user) {
+      return res.status(404).json({ success: false, msg: "User not found" });
+    }
 
     res.json({ success: true, user });
   } catch (err) {
@@ -95,18 +108,21 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-// --- ✅ FIXED: FORGOT PASSWORD (USING BREVO API TO BYPASS TIMEOUT) ---
+// --- ✅ GMAIL VERSION: FORGOT PASSWORD (FIXED FOR RENDER) ---
 exports.forgotPassword = async (req, res) => {
   const { email } = req.body;
   let user; 
 
   try {
     user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ msg: "User not found" });
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
 
     const resetToken = crypto.randomBytes(20).toString("hex");
     user.resetPasswordToken = crypto.createHash("sha256").update(resetToken).digest("hex");
     user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; 
+
     await user.save();
 
     const clientURL = process.env.CLIENT_URL || "https://nivana.vercel.app";
@@ -118,29 +134,41 @@ exports.forgotPassword = async (req, res) => {
       <a href="${resetUrl}">${resetUrl}</a>
     `;
 
-    // 🚀 BREVO API CALL (HTTP method Render par block nahi hota)
-    await axios.post('https://api.brevo.com/v3/smtp/email', {
-      sender: { name: "Nivana Support", email: "anujyadav992241@gmail.com" },
-      to: [{ email: user.email }],
+    // ✅ GMAIL CONFIG OPTIMIZED FOR RENDER (Using Port 465 & IPv4)
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true, 
+      pool: true, // Connection pool use karein taaki Render connection na kaate
+      auth: {
+        user: process.env.EMAIL_USER, // Your Gmail Email
+        pass: process.env.EMAIL_PASS, // Your Gmail 16-digit App Password
+      },
+      tls: {
+        rejectUnauthorized: false
+      },
+      connectionTimeout: 20000, // Wait 20s before timeout
+      family: 4 // Force IPv4 to avoid IPv6 block issues on cloud
+    });
+
+    await transporter.sendMail({
+      from: `"Nivana Support" <${process.env.EMAIL_USER}>`, 
+      to: user.email,
       subject: "Password Reset Request - NIVANA",
-      htmlContent: message,
-    }, {
-      headers: {
-        'api-key': process.env.EMAIL_PASS, // Aapki lamba SMTP Key yahan API Key banegi
-        'Content-Type': 'application/json'
-      }
+      html: message,
     });
 
     res.status(200).json({ success: true, data: "Email Sent Successfully" });
 
   } catch (err) {
-    console.error("Email API Error:", err.response ? err.response.data : err.message);
+    console.error("Gmail Error on Render:", err);
     if (user) {
       user.resetPasswordToken = undefined;
       user.resetPasswordExpire = undefined;
       await user.save({ validateBeforeSave: false }); 
     }
-    res.status(500).json({ msg: "Email could not be sent. Please try again." });
+    res.status(500).json({ msg: "Email could not be sent. Check your App Password." });
   }
 };
 
@@ -154,16 +182,21 @@ exports.resetPassword = async (req, res) => {
       resetPasswordExpire: { $gt: Date.now() },
     });
 
-    if (!user) return res.status(400).json({ msg: "Invalid or Expired Token" });
+    if (!user) {
+      return res.status(400).json({ msg: "Invalid or Expired Token" });
+    }
 
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(req.body.password, salt);
+
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
+
     await user.save();
 
     res.status(201).json({ success: true, data: "Password Updated Success" });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ msg: "Server error" });
   }
 };
