@@ -34,7 +34,6 @@ export default function Dashboard() {
   const [toast, setToast] = useState(null); 
   const [modalOpen, setModalOpen] = useState(false);
   const [weeklyMoodData, setWeeklyMoodData] = useState([]);
-  // 🔥 New State for controlling X-Axis labels
   const [xAxisTicks, setXAxisTicks] = useState([]); 
   const [loading, setLoading] = useState(true);
 
@@ -57,37 +56,49 @@ export default function Dashboard() {
     { area: "Stress Control", progress: 0, color: "bg-gray-200" },
   ]);
 
-  // 🔥🔥 FIXED: CUSTOM TOOLTIP LOGIC 🔥🔥
+  // 🔥🔥🔥 IMPORTANT: OAUTH TOKEN HANDLER (For Google Login) 🔥🔥🔥
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token");
+
+    if (token) {
+      console.log("🔹 OAuth Token Detected:", token);
+      localStorage.setItem("token", token);
+      
+      // Clean URL and Reload to verify auth
+      navigate("/dashboard", { replace: true });
+      window.location.reload();
+    }
+  }, [location, navigate]);
+
+  // 🔥 CUSTOM TOOLTIP LOGIC
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
-      // payload[0].payload gives access to the full data object (id, day, moodScore)
       const currentData = payload[0].payload; 
       const score = currentData.moodScore;
       
-      // Exact mapping based on your mood scores
       let moodText = "";
       let moodColorClass = "";
 
-      if (score >= 9) { // 10
+      if (score >= 9) { 
         moodText = "🌟 Great";
         moodColorClass = "text-green-600";
-      } else if (score >= 7) { // 8
+      } else if (score >= 7) { 
         moodText = "😊 Good";
         moodColorClass = "text-teal-600";
-      } else if (score >= 5) { // 6 (Okay) or 5 (Avg)
+      } else if (score >= 5) { 
         moodText = "🌤️ Okay";
         moodColorClass = "text-blue-500";
-      } else if (score >= 3) { // 4
+      } else if (score >= 3) { 
         moodText = "🌧️ Low";
         moodColorClass = "text-orange-500";
-      } else { // 2 or below
+      } else { 
         moodText = "🌪️ Rough";
         moodColorClass = "text-red-500";
       }
 
       return (
         <div className="bg-white/95 backdrop-blur-xl p-4 rounded-2xl shadow-[var(--shadow-float)] border border-gray-100 text-center z-50">
-          {/* Show the Day Name (Mon, Tue) instead of Index */}
           <p className="text-sm font-bold text-gray-400 mb-1 uppercase tracking-wider">{currentData.day}</p>
           <p className={`text-2xl font-black ${moodColorClass}`}>
             {score}/10
@@ -120,12 +131,16 @@ export default function Dashboard() {
     return { icon: meta.icon, insight };
   };
 
+  // Auth Protection
   useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("token")) return; // Don't redirect if processing token
+
     if (auth.isLoading) return;
     if (!auth.isAuthenticated) {
       navigate("/login", { replace: true });
     }
-  }, [auth.isLoading, auth.isAuthenticated, navigate]);
+  }, [auth.isLoading, auth.isAuthenticated, navigate, location.search]);
 
   const moods = [
     { emoji: "🌟", label: "Great", value: "great", bg: "bg-[var(--joy-sunshine)]/30" },
@@ -193,16 +208,15 @@ export default function Dashboard() {
   const computeImprovementAreasFromAssessment = (assessment) => {
     if (!assessment || !assessment.llmAnalysis || !assessment.llmAnalysis.scores) {
         return [
-            { area: "Sleep Quality", progress: 0, color: "bg-gray-200" },
-            { area: "Mental Focus", progress: 0, color: "bg-gray-200" },
-            { area: "Social Connection", progress: 0, color: "bg-gray-200" },
-            { area: "Emotional Balance", progress: 0, color: "bg-gray-200" },
-            { area: "Stress Control", progress: 0, color: "bg-gray-200" },
+          { area: "Sleep Quality", progress: 0, color: "bg-gray-200" },
+          { area: "Mental Focus", progress: 0, color: "bg-gray-200" },
+          { area: "Social Connection", progress: 0, color: "bg-gray-200" },
+          { area: "Emotional Balance", progress: 0, color: "bg-gray-200" },
+          { area: "Stress Control", progress: 0, color: "bg-gray-200" },
         ];
     }
 
     const scores = assessment.llmAnalysis.scores;
-
     const getHealthScore = (problemScore) => {
         const val = Number(problemScore) || 0;
         return Math.max(0, Math.min(100, 100 - val));
@@ -213,7 +227,6 @@ export default function Dashboard() {
     const socialVal = getHealthScore(scores.social);
     const emotionalVal = getHealthScore(scores.depression);
     const stressVal = getHealthScore(scores.anxiety);
-
     const getColor = (val) => val < 40 ? "bg-red-500" : val < 75 ? "bg-yellow-500" : "bg-green-500";
 
     return [
@@ -259,21 +272,18 @@ export default function Dashboard() {
       
       const rawMoods = data.weeklyMood || [];
       
-      // 🔥 FIX: Mapping unique ID for X-Axis to handle multiple same-day entries
       const processedMoods = rawMoods.map((d, index) => ({
         id: index, 
         day: d.day, 
         moodScore: d.score 
       }));
 
-      // 🔥🔥 NEW LOGIC: Calculate unique ticks (Only first occurrence of a day)
       const uniqueTicks = processedMoods
         .filter((item, index) => index === 0 || item.day !== processedMoods[index - 1].day)
         .map(item => item.id);
       
-      setXAxisTicks(uniqueTicks); // Set the calculated ticks
+      setXAxisTicks(uniqueTicks); 
       setWeeklyMoodData(processedMoods);
-      
       setImprovementAreas(computeImprovementAreasFromAssessment(data.latestAssessment));
       
       const risk = data.latestAssessment?.llmAnalysis?.riskLevel || data.latestAssessment?.severity || null;
@@ -330,6 +340,7 @@ export default function Dashboard() {
     }
   };
 
+  // 🔥🔥🔥 TIMEZONE FIX APPLIED HERE 🔥🔥🔥
   const handleMoodSelect = async (selectedMood) => {
     if (!auth.isAuthenticated) {
         setToast({ title: "Error", msg: "You are not logged in!" });
@@ -338,10 +349,14 @@ export default function Dashboard() {
 
     setMood(selectedMood);
 
+    // Calculate local time offset to send correct date to server
+    const localDate = new Date();
+    const offsetDate = new Date(localDate.getTime() - (localDate.getTimezoneOffset() * 60000));
+
     const payload = {
         mood: selectedMood,
         score: getMoodScore(selectedMood),
-        date: new Date().toISOString(), 
+        date: offsetDate.toISOString(), // Sends local ISO time (e.g. Thursday 1 AM)
     };
 
     try {
@@ -596,7 +611,6 @@ export default function Dashboard() {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                     
-                    {/* 🔥 FIX 1: Use ticks prop to show only one label per day */}
                     <XAxis 
                       dataKey="id" 
                       ticks={xAxisTicks} 
@@ -604,7 +618,7 @@ export default function Dashboard() {
                       tickLine={false} 
                       tick={{ fill: '#9CA3AF', fontSize: 12, fontWeight: 500 }} 
                       dy={10}
-                      interval={0} // Ensure the calculated ticks are forced to show
+                      interval={0} 
                       tickFormatter={(val) => weeklyMoodData.find(x => x.id === val)?.day || ""}
                     />
                     
@@ -615,7 +629,6 @@ export default function Dashboard() {
                       tick={{ fill: '#9CA3AF', fontSize: 12 }} 
                     />
                     
-                    {/* 🔥 FIX 2: shared={false} allows separate tooltips for overlapping/close points */}
                     <Tooltip 
                         content={<CustomTooltip />} 
                         cursor={{ stroke: '#4ade80', strokeWidth: 2, strokeDasharray: '5 5' }} 
