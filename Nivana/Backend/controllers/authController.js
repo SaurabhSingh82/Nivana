@@ -1,7 +1,7 @@
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const crypto = require("crypto"); // Built-in module
-const nodemailer = require("nodemailer"); // Email sender
+const crypto = require("crypto"); 
+const axios = require("axios"); // 👈 Ise install karein: npm install axios
 const User = require("../models/User");
 
 // --- LOGIN ---
@@ -36,7 +36,6 @@ exports.login = async (req, res) => {
         createdAt: user.createdAt
       },
     });
-
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({ msg: "Server error" });
@@ -76,30 +75,18 @@ exports.updateProfile = async (req, res) => {
     const userId = req.user.id;
     const updates = req.body;
 
-    const allowedUpdates = [
-      'fullName', 'bio', 'location', 'wellnessFocus', 
-      'emergencyName', 'emergencyPhone', 'reminderPreference'
-    ];
-
+    const allowedUpdates = ['fullName', 'bio', 'location', 'wellnessFocus', 'emergencyName', 'emergencyPhone', 'reminderPreference'];
     const actualUpdates = {};
     Object.keys(updates).forEach((key) => {
-      if (allowedUpdates.includes(key)) {
-        actualUpdates[key] = updates[key];
-      }
+      if (allowedUpdates.includes(key)) actualUpdates[key] = updates[key];
     });
 
     if (req.file) {
       actualUpdates.profileImage = `/uploads/profile_images/${req.file.filename}`;
     }
 
-    const user = await User.findByIdAndUpdate(userId, actualUpdates, { 
-      new: true, 
-      runValidators: true 
-    }).select('-password');
-
-    if (!user) {
-      return res.status(404).json({ success: false, msg: "User not found" });
-    }
+    const user = await User.findByIdAndUpdate(userId, actualUpdates, { new: true, runValidators: true }).select('-password');
+    if (!user) return res.status(404).json({ success: false, msg: "User not found" });
 
     res.json({ success: true, user });
   } catch (err) {
@@ -108,70 +95,57 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-// --- ✅ NEW & FIXED: FORGOT PASSWORD ---
+// --- ✅ FIXED: FORGOT PASSWORD (USING BREVO API TO BYPASS TIMEOUT) ---
 exports.forgotPassword = async (req, res) => {
   const { email } = req.body;
-  let user; // ✅ Fix: User variable ko try block ke bahar declare kiya
+  let user; 
 
   try {
     user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ msg: "User not found" });
-    }
+    if (!user) return res.status(404).json({ msg: "User not found" });
 
-    // Reset Token Generate
     const resetToken = crypto.randomBytes(20).toString("hex");
-
-    // Hash karke DB me save (Security)
     user.resetPasswordToken = crypto.createHash("sha256").update(resetToken).digest("hex");
-    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 Minutes
-
+    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; 
     await user.save();
 
-    // Reset URL
-    const clientURL = process.env.CLIENT_URL || "http://localhost:5173";
+    const clientURL = process.env.CLIENT_URL || "https://nivana.vercel.app";
     const resetUrl = `${clientURL}/reset-password/${resetToken}`;
 
     const message = `
-      <h1>You have requested a password reset</h1>
-      <p>Please go to this link to reset your password:</p>
-      <a href=${resetUrl} clicktracking=off>${resetUrl}</a>
+      <h1>Password Reset Request</h1>
+      <p>Please click the link below to reset your password:</p>
+      <a href="${resetUrl}">${resetUrl}</a>
     `;
 
-    // Email Config
-    const transporter = nodemailer.createTransport({
-      service: "Gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS // App Password (without spaces)
-      },
-    });
-
-    await transporter.sendMail({
-      to: user.email,
+    // 🚀 BREVO API CALL (HTTP method Render par block nahi hota)
+    await axios.post('https://api.brevo.com/v3/smtp/email', {
+      sender: { name: "Nivana Support", email: "anujyadav992241@gmail.com" },
+      to: [{ email: user.email }],
       subject: "Password Reset Request - NIVANA",
-      html: message,
+      htmlContent: message,
+    }, {
+      headers: {
+        'api-key': process.env.EMAIL_PASS, // Aapki lamba SMTP Key yahan API Key banegi
+        'Content-Type': 'application/json'
+      }
     });
 
-    res.status(200).json({ success: true, data: "Email Sent" });
+    res.status(200).json({ success: true, data: "Email Sent Successfully" });
 
   } catch (err) {
-    console.error("Email Error:", err);
-    
-    // ✅ Fix: Check karein agar user exist karta hai tabhi token clear karein
+    console.error("Email API Error:", err.response ? err.response.data : err.message);
     if (user) {
       user.resetPasswordToken = undefined;
       user.resetPasswordExpire = undefined;
-      await user.save({ validateBeforeSave: false }); // Validation ignore karke save karein
+      await user.save({ validateBeforeSave: false }); 
     }
-    
-    res.status(500).json({ msg: "Email could not be sent" });
+    res.status(500).json({ msg: "Email could not be sent. Please try again." });
   }
 };
 
-// --- ✅ RESET PASSWORD ---
+// --- RESET PASSWORD ---
 exports.resetPassword = async (req, res) => {
-  // URL se token le kar hash match karein
   const resetPasswordToken = crypto.createHash("sha256").update(req.params.resetToken).digest("hex");
 
   try {
@@ -180,23 +154,16 @@ exports.resetPassword = async (req, res) => {
       resetPasswordExpire: { $gt: Date.now() },
     });
 
-    if (!user) {
-      return res.status(400).json({ msg: "Invalid or Expired Token" });
-    }
+    if (!user) return res.status(400).json({ msg: "Invalid or Expired Token" });
 
-    // Naya Password Hash karein
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(req.body.password, salt);
-
-    // Tokens clear karein
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
-
     await user.save();
 
     res.status(201).json({ success: true, data: "Password Updated Success" });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ msg: "Server error" });
   }
 };
