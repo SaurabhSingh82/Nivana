@@ -1,7 +1,7 @@
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const crypto = require("crypto"); 
-const nodemailer = require("nodemailer"); 
+const crypto = require("crypto");
+const nodemailer = require("nodemailer");
 const User = require("../models/User");
 
 // --- LOGIN ---
@@ -108,7 +108,7 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-// --- ✅ FINAL FIXED: FORGOT PASSWORD (BREVO CONFIG) ---
+// --- ✅ FINAL VERSION: FORGOT PASSWORD (BREVO) ---
 exports.forgotPassword = async (req, res) => {
   const { email } = req.body;
   let user; 
@@ -125,34 +125,34 @@ exports.forgotPassword = async (req, res) => {
 
     await user.save();
 
-    const clientURL = process.env.CLIENT_URL || "http://localhost:5173";
+    const clientURL = process.env.CLIENT_URL || "https://nivana.vercel.app";
     const resetUrl = `${clientURL}/reset-password/${resetToken}`;
 
     const message = `
-      <h1>You have requested a password reset</h1>
-      <p>Please go to this link to reset your password:</p>
-      <a href=${resetUrl} clicktracking=off>${resetUrl}</a>
+      <h1>Password Reset Request</h1>
+      <p>Please click the link below to reset your password:</p>
+      <a href="${resetUrl}">${resetUrl}</a>
     `;
 
-    // ✅ Brevo SMTP Transporter
+    // SMTP Config
     const transporter = nodemailer.createTransport({
       host: "smtp-relay.brevo.com", 
       port: 587,
       secure: false, 
       auth: {
-        user: process.env.EMAIL_USER, // Render Env Var: anujyadav992241@gmail.com
-        pass: process.env.EMAIL_PASS, // Render Env Var: Aapki SMTP Key
+        user: "anujyadav992241@gmail.com", // Direct Email
+        pass: process.env.EMAIL_PASS,       // Key from Render
       },
     });
 
     await transporter.sendMail({
-      from: `"Nivana Team" <${process.env.EMAIL_USER}>`, 
+      from: '"Nivana Support" <anujyadav992241@gmail.com>', // Verified Sender
       to: user.email,
       subject: "Password Reset Request - NIVANA",
       html: message,
     });
 
-    res.status(200).json({ success: true, data: "Email Sent" });
+    res.status(200).json({ success: true, data: "Email Sent Successfully" });
 
   } catch (err) {
     console.error("Email Error:", err);
@@ -161,7 +161,7 @@ exports.forgotPassword = async (req, res) => {
       user.resetPasswordExpire = undefined;
       await user.save({ validateBeforeSave: false }); 
     }
-    res.status(500).json({ msg: "Email could not be sent" });
+    res.status(500).json({ msg: "Email could not be sent. Please try again." });
   }
 };
 
